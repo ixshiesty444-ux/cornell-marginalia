@@ -1,56 +1,69 @@
-/* 1. HACER ESPACIO (Mover el "papel" a la derecha) */
-.markdown-source-view.mod-cm6 .cm-scroller {
-    /* Ajusta este valor según tu pantalla. 
-       Esto crea la "Columna Izquierda" vacía. */
-    padding-left: 220px !important; 
+/* --- ESCRITORIO (Pantallas grandes) --- */
+@media (min-width: 768px) {
+    /* Hacer espacio a la izquierda */
+    .markdown-source-view.mod-cm6 .cm-scroller {
+        padding-left: 220px !important;
+    }
+
+    .markdown-source-view.mod-cm6 .cm-content {
+        max-width: 900px;
+        margin: 0 auto 0 0;
+    }
+
+    /* La nota flotando a la izquierda */
+    .cm-cornell-margin {
+        position: absolute;
+        left: -210px;
+        width: 190px;
+        top: 0;
+        
+        font-family: var(--font-monospace);
+        font-size: 0.85em;
+        text-align: right;
+        line-height: 1.3;
+        color: var(--text-accent);
+        
+        border-right: 2px solid var(--text-muted);
+        padding-right: 10px;
+        
+        user-select: none;
+        pointer-events: none;
+    }
 }
 
-/* Opcional: Limitar el ancho del texto para que no sea eterno de leer */
-.markdown-source-view.mod-cm6 .cm-content {
-    max-width: 900px; 
-    margin: 0 auto 0 0; /* Alinear a la izquierda del contenedor desplazado */
-}
-
-
-/* 2. ESTILO DE LA NOTA AL MARGEN (El Widget) */
-.cm-cornell-margin {
-    position: absolute; /* Magia absoluta */
-    left: -210px;       /* Moverlo al espacio vacío que creamos */
-    width: 190px;       /* Ancho de la nota */
-    
-    /* Tipografía y Color */
-    font-family: var(--font-monospace); /* O 'Handwriting' si tienes una */
-    font-size: 0.85em;
-    color: var(--text-accent); /* Usa el color de acento de tu tema */
-    text-align: right;         /* Alineado a la derecha, pegado a la línea divisoria */
-    line-height: 1.2;
-    
-    /* Decoración visual */
-    border-right: 2px solid var(--text-muted); /* La línea vertical del Cornell */
-    padding-right: 10px;
-    top: 0; /* Alinear con la línea superior del texto */
-    
-    /* Para que no moleste al hacer click */
-    user-select: none; 
-    pointer-events: none;
-}
-
-/* 3. RESPONSIVE (En móvil, que se vea normal) */
-@media (max-width: 768px) {
+/* --- MÓVIL (Celulares y Tablets pequeñas) --- */
+@media (max-width: 767px) {
+    /* 1. Recuperar el espacio perdido (quita el margen gigante) */
     .markdown-source-view.mod-cm6 .cm-scroller {
         padding-left: 10px !important;
     }
+
+    /* 2. Transformar la nota en un "Bloque de Anotación" */
     .cm-cornell-margin {
-        position: relative;
-        left: 0;
-        width: 100%;
-        text-align: left;
-        border-right: none;
-        border-bottom: 1px solid var(--text-muted);
-        color: var(--text-faint);
         display: block;
-        margin-bottom: 5px;
+        position: relative; /* Ya no flota, fluye con el texto */
+        width: 100%;
+        margin: 0.5em 0; /* Un poco de aire arriba y abajo */
+        
+        /* Estilo visual tipo "Tarjeta" */
+        background-color: var(--background-secondary); /* Fondo suave */
+        border-left: 3px solid var(--interactive-accent); /* Línea de color a la izquierda */
+        border-right: none;
+        
+        padding: 8px 12px;
+        border-radius: 4px;
+        
+        /* Tipografía */
+        font-family: var(--font-interface);
+        font-size: 0.9em;
+        color: var(--text-normal);
+        font-style: italic;
+        text-align: left;
     }
-}/*
-
-
+    
+    /* Pequeño truco para añadir un icono o etiqueta "Nota:" antes del texto */
+    .cm-cornell-margin::before {
+        content: "📝 ";
+        opacity: 0.7;
+    }
+}
