@@ -31,6 +31,12 @@ This is the easiest way to install and get automatic updates.
 5. Reload Obsidian and enable the plugin.
 
 ## Examples
-![Marginalia](assets/marginalia.png) 
 
-![Mobile](assets/mobile.jpg) 
+<p align="center">
+  <img src="assets/marginalia.png" width="600" title="Marginalia">
+</p>
+
+<p align="center">
+  <img src="assets/mobile.jpg" width="600" title="Mobile">
+</p>
+
