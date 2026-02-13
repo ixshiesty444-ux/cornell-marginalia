@@ -31,39 +31,38 @@
     }
 }
 
-/* --- MÓVIL (Celulares y Tablets pequeñas) --- */
+/* --- MÓVIL (Celulares) --- */
 @media (max-width: 767px) {
-    /* 1. Recuperar el espacio perdido (quita el margen gigante) */
+    /* 1. Quitamos el margen gigante de la izquierda */
     .markdown-source-view.mod-cm6 .cm-scroller {
         padding-left: 10px !important;
     }
 
-    /* 2. Transformar la nota en un "Bloque de Anotación" */
+    /* 2. Forzamos a la nota a flotar a la derecha */
     .cm-cornell-margin {
-        display: block;
-        position: relative; /* Ya no flota, fluye con el texto */
-        width: 100%;
-        margin: 0.5em 0; /* Un poco de aire arriba y abajo */
+        display: block;       /* Comportamiento de bloque... */
+        float: right;         /* ...pero flotando a la derecha */
+        width: 40%;           /* Ocupa el 40% de la pantalla */
+        margin-left: 10px;    /* Espacio entre texto y nota */
+        margin-bottom: 5px;
         
-        /* Estilo visual tipo "Tarjeta" */
-        background-color: var(--background-secondary); /* Fondo suave */
-        border-left: 3px solid var(--interactive-accent); /* Línea de color a la izquierda */
-        border-right: none;
+        /* Estética compacta */
+        background-color: var(--background-primary-alt);
+        border-right: 2px solid var(--interactive-accent); /* Línea a la derecha */
+        border-left: none; /* Quitamos borde izquierdo */
         
-        padding: 8px 12px;
+        padding: 4px 8px;
         border-radius: 4px;
         
-        /* Tipografía */
+        /* Texto más pequeño para que quepa */
         font-family: var(--font-interface);
-        font-size: 0.9em;
-        color: var(--text-normal);
-        font-style: italic;
+        font-size: 0.70em; 
+        line-height: 1.2;
+        color: var(--text-muted);
         text-align: left;
-    }
-    
-    /* Pequeño truco para añadir un icono o etiqueta "Nota:" antes del texto */
-    .cm-cornell-margin::before {
-        content: "📝 ";
-        opacity: 0.7;
+        
+        /* Asegurar que no tape el texto si es muy largo */
+        clear: right; 
+        z-index: 10;
     }
 }
