@@ -1,5 +1,6 @@
-import { Plugin, App, MarkdownRenderer, Component } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component } from 'obsidian';
 import { RangeSetBuilder } from '@codemirror/state';
+import { syntaxTree } from '@codemirror/language';
 import { 
     EditorView, 
     Decoration, 
@@ -9,16 +10,23 @@ import {
     WidgetType
 } from '@codemirror/view';
 
-// 1. EL WIDGET (Ahora renderiza Markdown real)
+// --- CONFIGURACIÓN ---
+interface CornellSettings {
+    ignoredFolders: string;
+}
+
+const DEFAULT_SETTINGS: CornellSettings = {
+    ignoredFolders: 'Templates, Archivos/Excluidos'
+}
+
+// --- WIDGET (Lo que se ve al margen) ---
 class MarginNoteWidget extends WidgetType {
-    // Necesitamos recibir la 'app' para poder renderizar links
     constructor(readonly text: string, readonly app: App) { super(); }
 
     toDOM(view: EditorView): HTMLElement {
         const div = document.createElement("div");
         div.className = "cm-cornell-margin";
         
-
         MarkdownRenderer.render(
             this.app,
             this.text,
@@ -27,14 +35,9 @@ class MarginNoteWidget extends WidgetType {
             new Component() 
         );
 
-        // Evitar que el click en la nota active la edición inmediata (opcional)
-        // Pero permitimos click en links
         div.onclick = (e) => {
             const target = e.target as HTMLElement;
-            // Si el click fue en un link, dejamos que pase. Si no, prevenimos.
-            if (target.tagName !== 'A') {
-                e.preventDefault();
-            }
+            if (target.tagName !== 'A') e.preventDefault();
         };
         
         return div;
@@ -43,8 +46,8 @@ class MarginNoteWidget extends WidgetType {
     ignoreEvent() { return false; } 
 }
 
-// 2. EL PLUGIN DE VISTA (Ahora recibe la 'app')
-const createCornellExtension = (app: App) => ViewPlugin.fromClass(class {
+// --- EXTENSIÓN DE VISTA (El cerebro) ---
+const createCornellExtension = (app: App, settings: CornellSettings) => ViewPlugin.fromClass(class {
     decorations: DecorationSet;
 
     constructor(view: EditorView) {
@@ -59,12 +62,24 @@ const createCornellExtension = (app: App) => ViewPlugin.fromClass(class {
 
     buildDecorations(view: EditorView) {
         const builder = new RangeSetBuilder<Decoration>();
+        
+        // 1. CHECK DE CARPETA: Usamos el método seguro de la App
+        const file = app.workspace.getActiveFile();
+        if (file) {
+            const ignoredPaths = settings.ignoredFolders.split(',').map(s => s.trim()).filter(s => s.length > 0);
+            for (const path of ignoredPaths) {
+                // Si la ruta del archivo empieza con alguna carpeta ignorada...
+                if (file.path.startsWith(path)) {
+                    return builder.finish(); // ...no hacemos nada (return vacío).
+                }
+            }
+        }
+
         const { state } = view;
         const cursorRanges = state.selection.ranges;
 
         for (const { from, to } of view.visibleRanges) {
             const text = state.doc.sliceString(from, to);
-            // Regex para buscar %%> ... %%
             const regex = /%%>(.*?)%%/g;
             let match;
 
@@ -72,6 +87,17 @@ const createCornellExtension = (app: App) => ViewPlugin.fromClass(class {
                 const start = from + match.index;
                 const end = start + match[0].length;
 
+                // 2. CHECK DE CÓDIGO: ¿Está esto dentro de un bloque de código?
+                const tree = syntaxTree(state);
+                const node = tree.resolve(start, 1);
+                // Tipos de nodos comunes de código en Markdown
+                const isCode = node.name.includes("code") || node.name.includes("Code") || node.name.includes("math");
+                
+                if (isCode) {
+                    continue; // Si es código, ignoramos y mostramos el texto raw
+                }
+
+                // 3. Lógica del cursor (para editar)
                 let isCursorInside = false;
                 for (const range of cursorRanges) {
                     if (range.from >= start && range.to <= end) {
@@ -83,7 +109,6 @@ const createCornellExtension = (app: App) => ViewPlugin.fromClass(class {
                 if (isCursorInside) continue;
 
                 builder.add(start, end, Decoration.replace({
-                    // Pasamos la APP al widget aquí abajo
                     widget: new MarginNoteWidget(match[1], app)
                 }));
             }
@@ -94,11 +119,51 @@ const createCornellExtension = (app: App) => ViewPlugin.fromClass(class {
     decorations: v => v.decorations
 });
 
-// 3. EL PLUGIN PRINCIPAL
+// --- PESTAÑA DE CONFIGURACIÓN ---
+class CornellSettingTab extends PluginSettingTab {
+    plugin: CornellMarginalia;
+
+    constructor(app: App, plugin: CornellMarginalia) {
+        super(app, plugin);
+        this.plugin = plugin;
+    }
+
+    display(): void {
+        const { containerEl } = this;
+        containerEl.empty();
+
+        containerEl.createEl('h2', { text: 'Cornell Marginalia Settings' });
+
+        new Setting(containerEl)
+            .setName('Ignored Folders')
+            .setDesc('Enter folder paths to ignore, separated by commas (e.g. "Templates, Archives"). The plugin will not render marginalia in these files.')
+            .addTextArea(text => text
+                .setPlaceholder('Templates, Scripts')
+                .setValue(this.plugin.settings.ignoredFolders)
+                .onChange(async (value) => {
+                    this.plugin.settings.ignoredFolders = value;
+                    await this.plugin.saveSettings();
+                    // Forzamos un refresh
+                    this.plugin.app.workspace.updateOptions();
+                }));
+    }
+}
+
+// --- PLUGIN PRINCIPAL ---
 export default class CornellMarginalia extends Plugin {
+    settings: CornellSettings;
+
     async onload() {
-        console.log("Cornell Marginalia (Rich Text) cargado 🩺");
-        // Al registrar la extensión, le pasamos 'this.app'
-        this.registerEditorExtension(createCornellExtension(this.app));
+        await this.loadSettings();
+        this.addSettingTab(new CornellSettingTab(this.app, this));
+        this.registerEditorExtension(createCornellExtension(this.app, this.settings));
+    }
+
+    async loadSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
+
+    async saveSettings() {
+        await this.saveData(this.settings);
     }
 }
