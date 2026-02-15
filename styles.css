@@ -1,67 +1,54 @@
-/* 1. HACER ESPACIO (Mover el "papel" a la derecha) */
-.markdown-source-view.mod-cm6 .cm-scroller {
-    /* Ajusta este valor según tu pantalla. 
-       Esto crea la "Columna Izquierda" vacía. */
-    padding-left: 220px !important; 
+:root {
+    --cornell-width: 25%;
+    --cornell-bg: transparent;
+    
+    /* Variables dinámicas */
+    --cornell-left: auto;
+    --cornell-right: auto;
+    --cornell-margin-left: 0;
+    --cornell-margin-right: 0;
+    
+    /* Variables de Estilo */
+    --cornell-text-align: right; 
+    --cornell-border-l: none;
+    --cornell-border-r: 2px solid var(--text-accent);
+    
+    /* NUEVAS VARIABLES DE FUENTE */
+    --cornell-font-size: 0.85em;
+    --cornell-font-family: inherit;
 }
 
-/* Opcional: Limitar el ancho del texto para que no sea eterno de leer */
-.markdown-source-view.mod-cm6 .cm-content {
-    max-width: 900px; 
-    margin: 0 auto 0 0; /* Alinear a la izquierda del contenedor desplazado */
-}
-
-
-/* 2. ESTILO DE LA NOTA AL MARGEN (El Widget) */
 .cm-cornell-margin {
-    position: absolute; /* Magia absoluta */
-    left: -210px;       /* Moverlo al espacio vacío que creamos */
-    width: 190px;       /* Ancho de la nota */
+    position: absolute;
+    width: var(--cornell-width);
+    top: 0;
     
-    /* Tipografía y Color */
-    font-family: var(--font-monospace); /* O 'Handwriting' si tienes una */
-    font-size: 0.85em;
-    color: var(--text-accent); /* Usa el color de acento de tu tema */
-    text-align: right;         /* Alineado a la derecha, pegado a la línea divisoria */
-    line-height: 1.2;
+    left: var(--cornell-left);
+    right: var(--cornell-right);
+    margin-left: var(--cornell-margin-left);
+    margin-right: var(--cornell-margin-right);
     
-    /* Decoración visual */
-    border-right: 2px solid var(--text-muted); /* La línea vertical del Cornell */
-    padding-right: 10px;
-    top: 0; /* Alinear con la línea superior del texto */
+    background-color: var(--cornell-bg);
+    border-left: var(--cornell-border-l);
+    border-right: var(--cornell-border-r);
     
-    /* Para que no moleste al hacer click */
-    user-select: none; 
-    pointer-events: none;
-}
-
-/* 3. RESPONSIVE (En móvil, que se vea normal) */
-@media (max-width: 768px) {
-    .markdown-source-view.mod-cm6 .cm-scroller {
-        padding-left: 10px !important;
-    }
-    .cm-cornell-margin {
-        position: relative;
-        left: 0;
-        width: 100%;
-        text-align: left;
-        border-right: none;
-        border-bottom: 1px solid var(--text-muted);
-        color: var(--text-faint);
-        display: block;
-        margin-bottom: 5px;
-    }
-}/*
-
-/* Corrección para el Markdown Renderer */
-.cm-cornell-margin p {
-    margin: 0 !important;
-    display: inline; /* O block, según prefieras */
-}
-
-/* Hacer que los links dentro de la nota se vean bien */
-.cm-cornell-margin a {
+    /* APLICAMOS LAS VARIABLES */
+    font-size: var(--cornell-font-size); 
+    font-family: var(--cornell-font-family);
+    
+    font-weight: normal;
+    font-style: normal;
     color: var(--text-accent);
-    text-decoration: underline;
-    pointer-events: auto; /* Asegura que el link sea clickeable */
+    text-align: var(--cornell-text-align);
+    line-height: 1.4;
+    
+    padding-left: 10px;
+    padding-right: 10px;
+    
+    z-index: 10;
+    pointer-events: none; 
 }
+
+.cm-cornell-margin * { pointer-events: auto; }
+.cm-cornell-margin p { margin: 0 !important; display: inline; }
+.cm-cornell-margin a { color: inherit; text-decoration: underline; }
