@@ -10,37 +10,70 @@ import {
     WidgetType
 } from '@codemirror/view';
 
-// --- CONFIGURACIÓN ---
+// --- ESTRUCTURAS DE DATOS ---
+
+// Definimos qué es una "Etiqueta Cornell"
+interface CornellTag {
+    prefix: string; // Ej: "?"
+    color: string;  // Ej: "#ff9900"
+}
+
 interface CornellSettings {
     ignoredFolders: string;
     alignment: 'left' | 'right'; 
     marginWidth: number;
-    fontSize: string;      // NUEVO
-    fontFamily: string;    // NUEVO
+    fontSize: string;
+    fontFamily: string;
+    tags: CornellTag[]; // NUEVO: Lista de etiquetas personalizables
 }
 
+// Defaults en Inglés como pediste
 const DEFAULT_SETTINGS: CornellSettings = {
     ignoredFolders: 'Templates, Archivos/Excluidos',
     alignment: 'left', 
     marginWidth: 25,
-    fontSize: '0.85em',    // Valor por defecto (original)
-    fontFamily: 'inherit'  // Valor por defecto (usa la fuente de Obsidian)
+    fontSize: '0.85em',
+    fontFamily: 'inherit',
+    tags: [
+        { prefix: '!', color: '#ffea00' }, // Important (Yellow)
+        { prefix: '?', color: '#ff9900' }, // Question (Orange)
+        { prefix: 'X-', color: '#ff4d4d' }, // Correction (Red)
+        { prefix: 'V-', color: '#00cc66' }  // Reviewed (Green)
+    ]
 }
 
 // --- WIDGET ---
 class MarginNoteWidget extends WidgetType {
-    constructor(readonly text: string, readonly app: App) { super(); }
+    // Ahora aceptamos un color opcional
+    constructor(
+        readonly text: string, 
+        readonly app: App, 
+        readonly customColor: string | null 
+    ) { super(); }
 
     toDOM(view: EditorView): HTMLElement {
         const div = document.createElement("div");
         div.className = "cm-cornell-margin";
+        
+        // Si hay un color personalizado (detectado por prefijo), lo aplicamos inline
+        // Esto sobreescribe las variables CSS por defecto para ESTA nota específica
+        if (this.customColor) {
+            div.style.borderColor = this.customColor; // Cambia el borde
+            div.style.color = this.customColor;       // Cambia el texto
+            
+            // Opcional: Si prefieres que el texto siga siendo del color normal y solo cambie el borde,
+            // comenta la linea de 'div.style.color'.
+        }
+
         MarkdownRenderer.render(this.app, this.text, div, "", new Component());
+        
         div.onclick = (e) => {
             const target = e.target as HTMLElement;
             if (target.tagName !== 'A') e.preventDefault();
         };
         return div;
     }
+
     ignoreEvent() { return false; } 
 }
 
@@ -79,6 +112,8 @@ const createCornellExtension = (app: App, settings: CornellSettings) => ViewPlug
             while ((match = regex.exec(text))) {
                 const start = from + match.index;
                 const end = start + match[0].length;
+                const noteContent = match[1];
+
                 const tree = syntaxTree(state);
                 const node = tree.resolve(start, 1);
                 const isCode = node.name.includes("code") || node.name.includes("Code") || node.name.includes("math");
@@ -95,8 +130,20 @@ const createCornellExtension = (app: App, settings: CornellSettings) => ViewPlug
 
                 if (isCursorInside) continue;
 
+                // --- LÓGICA DE DETECCIÓN DE COLOR ---
+                let matchedColor = null;
+                const trimmedContent = noteContent.trim(); // Ignoramos espacios al principio
+
+                // Buscamos si el texto empieza con alguno de los prefijos configurados
+                for (const tag of settings.tags) {
+                    if (trimmedContent.startsWith(tag.prefix)) {
+                        matchedColor = tag.color;
+                        break; // Encontramos coincidencia, dejamos de buscar
+                    }
+                }
+
                 builder.add(start, end, Decoration.replace({
-                    widget: new MarginNoteWidget(match[1], app)
+                    widget: new MarginNoteWidget(noteContent, app, matchedColor)
                 }));
             }
         }
@@ -120,7 +167,9 @@ class CornellSettingTab extends PluginSettingTab {
         containerEl.empty();
         containerEl.createEl('h2', { text: 'Cornell Marginalia Settings' });
 
-        // 1. Alineación
+        // --- SECCIÓN GENERAL ---
+        containerEl.createEl('h3', { text: 'General Appearance' });
+
         new Setting(containerEl)
             .setName('Margin Alignment')
             .setDesc('Left (Classic Cornell) or Right (Modern Textbook).')
@@ -134,10 +183,8 @@ class CornellSettingTab extends PluginSettingTab {
                     this.plugin.updateStyles();
                 }));
 
-        // 2. Ancho
         new Setting(containerEl)
             .setName('Margin Width (%)')
-            .setDesc('Slide to adjust width.')
             .addSlider(slider => slider
                 .setLimits(15, 60, 1)
                 .setValue(this.plugin.settings.marginWidth)
@@ -148,10 +195,8 @@ class CornellSettingTab extends PluginSettingTab {
                     this.plugin.updateStyles();
                 }));
 
-        // 3. Tamaño de Fuente (NUEVO)
         new Setting(containerEl)
             .setName('Font Size')
-            .setDesc('CSS value for font size (e.g. "0.85em", "14px", "0.9rem"). Default: 0.85em')
             .addText(text => text
                 .setPlaceholder('0.85em')
                 .setValue(this.plugin.settings.fontSize)
@@ -161,10 +206,8 @@ class CornellSettingTab extends PluginSettingTab {
                     this.plugin.updateStyles();
                 }));
 
-        // 4. Familia de Fuente (NUEVO)
         new Setting(containerEl)
             .setName('Font Family')
-            .setDesc('Custom font family (e.g. "Arial", "Consolas", or "var(--font-monospace)"). Default: inherit')
             .addText(text => text
                 .setPlaceholder('inherit')
                 .setValue(this.plugin.settings.fontFamily)
@@ -174,7 +217,63 @@ class CornellSettingTab extends PluginSettingTab {
                     this.plugin.updateStyles();
                 }));
 
-        // 5. Ignorar Carpetas
+        // --- SECCIÓN DE ETIQUETAS DE COLOR (NUEVO) ---
+        containerEl.createEl('h3', { text: 'Color Tags & Categories' });
+        containerEl.createEl('p', { text: 'Define prefixes to automatically color-code your notes. E.g., start a note with "?" to make it orange.', cls: 'setting-item-description' });
+
+        // 1. Listar etiquetas existentes
+        this.plugin.settings.tags.forEach((tag, index) => {
+            const setting = new Setting(containerEl)
+                .setName(`Tag ${index + 1}`)
+                .setDesc('Prefix & Color')
+                
+                // Input para el Prefijo (Ej: "?")
+                .addText(text => text
+                    .setPlaceholder('Prefix (e.g. ?)')
+                    .setValue(tag.prefix)
+                    .onChange(async (value) => {
+                        this.plugin.settings.tags[index].prefix = value;
+                        await this.plugin.saveSettings();
+                        // No necesitamos updateStyles(), pero sí refrescar el editor
+                        this.plugin.app.workspace.updateOptions();
+                    }))
+                
+                // Picker para el Color
+                .addColorPicker(color => color
+                    .setValue(tag.color)
+                    .onChange(async (value) => {
+                        this.plugin.settings.tags[index].color = value;
+                        await this.plugin.saveSettings();
+                        this.plugin.app.workspace.updateOptions();
+                    }))
+                
+                // Botón de borrar
+                .addButton(btn => btn
+                    .setIcon('trash')
+                    .setTooltip('Delete Tag')
+                    .onClick(async () => {
+                        this.plugin.settings.tags.splice(index, 1);
+                        await this.plugin.saveSettings();
+                        // Refrescamos la pestaña de settings para que desaparezca la fila
+                        this.display();
+                        this.plugin.app.workspace.updateOptions();
+                    }));
+        });
+
+        // 2. Botón para añadir nueva etiqueta
+        new Setting(containerEl)
+            .addButton(btn => btn
+                .setButtonText('Add New Tag')
+                .setCta()
+                .onClick(async () => {
+                    this.plugin.settings.tags.push({ prefix: 'New', color: '#888888' });
+                    await this.plugin.saveSettings();
+                    this.display();
+                }));
+
+        // --- SECCIÓN AVANZADA ---
+        containerEl.createEl('h3', { text: 'Advanced' });
+        
         new Setting(containerEl)
             .setName('Ignored Folders')
             .addTextArea(text => text
@@ -214,14 +313,11 @@ export default class CornellMarginalia extends Plugin {
         });
     }
 
-    // --- ACTUALIZADOR DE ESTILOS ---
     updateStyles() {
-        // Variables Base
         document.body.style.setProperty('--cornell-width', `${this.settings.marginWidth}%`);
         document.body.style.setProperty('--cornell-font-size', this.settings.fontSize);
         document.body.style.setProperty('--cornell-font-family', this.settings.fontFamily);
         
-        // Lógica de Lado
         if (this.settings.alignment === 'left') {
             document.body.style.setProperty('--cornell-left', 'auto');
             document.body.style.setProperty('--cornell-right', '100%');
