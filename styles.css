@@ -260,3 +260,48 @@ body.cornell-active-recall-on .cornell-flashcard-target .cm-cornell-margin * {
     color: var(--text-faint);
     text-align: right;
 }
+
+/* ======================================================
+   🖨️ SOPORTE PARA EXPORTACIÓN A PDF (INLINE & ABSOLUTE)
+   ====================================================== */
+
+@media print {
+    /* 1. La "Caja Fuerte" (El Párrafo) */
+    p:has(.cornell-print-margin),
+    li:has(.cornell-print-margin),
+    blockquote:has(.cornell-print-margin) {
+        position: relative !important;
+        /* Empujamos el texto principal a la derecha para crear la columna Cornell */
+        padding-left: 28% !important; 
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+    }
+
+    /* 2. La Marginalia salta a la columna vacía */
+    .cornell-print-margin {
+        position: absolute !important;
+        left: 0 !important;
+        /* top: 0 asegura que quede alineada con la primera línea del párrafo, 
+           sin importar dónde hayas puesto la nota */
+        top: 2px !important; 
+        
+        width: 24% !important;
+        display: block !important;
+        text-align: right !important;
+        padding-right: 10px !important;
+        
+        background-color: transparent !important;
+        font-size: 9.5pt !important;
+        line-height: 1.2 !important;
+    }
+
+    /* 3. Seguro anti-blur */
+    body.cornell-active-recall-on .cornell-flashcard-target {
+        color: black !important;
+        text-shadow: none !important;
+    }
+    body.cornell-active-recall-on .cornell-flashcard-target * {
+        color: black !important; 
+    }
+}
+}

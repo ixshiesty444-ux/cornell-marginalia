@@ -429,6 +429,22 @@ export default class CornellMarginalia extends Plugin {
             }
         });
 
+        this.addCommand({
+            id: 'prepare-pdf-print',
+            name: 'Prepare Marginalia for PDF Print',
+            editorCallback: (editor: Editor) => {
+                this.prepareForPrint(editor);
+            }
+        });
+
+        this.addCommand({
+            id: 'restore-pdf-print',
+            name: 'Restore Marginalia after PDF Print',
+            editorCallback: (editor: Editor) => {
+                this.restoreFromPrint(editor);
+            }
+        });
+
         this.registerMarkdownPostProcessor((el, ctx) => {
             if (!this.settings.enableReadingView) return;
             
@@ -617,4 +633,57 @@ async activateView() {
 
     async loadSettings() { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); }
     async saveSettings() { await this.saveData(this.settings); }
+// --- LÓGICA DE IMPRESIÓN (PDF EXPORT) ULTRA SEGURA ---
+    async prepareForPrint(editor: Editor) {
+        let content = editor.getValue();
+        let modified = false;
+
+        // Reemplazo puramente en línea. No movemos el texto de su lugar original.
+        const newContent = content.replace(/%%>(.*?)%%/g, (match, noteContent) => {
+            modified = true;
+            let finalText = noteContent.trim();
+            
+            if (finalText.endsWith(';;')) {
+                finalText = finalText.slice(0, -2).trim();
+            }
+
+            let matchedColor = 'var(--text-accent)';
+            for (const tag of this.settings.tags) {
+                if (finalText.startsWith(tag.prefix)) {
+                    matchedColor = tag.color;
+                    finalText = finalText.substring(tag.prefix.length).trim();
+                    break;
+                }
+            }
+
+            // Guardamos tu texto original codificado para que sea imposible perderlo
+            const safeOriginal = encodeURIComponent(match);
+            return `<span class="cornell-print-margin" data-original="${safeOriginal}" style="border-right: 3px solid ${matchedColor}; color: ${matchedColor};">${finalText}</span>`;
+        });
+
+        if (modified) {
+            editor.setValue(newContent);
+            new Notice("¡Nota preparada para imprimir! Exporta a PDF ahora.");
+        } else {
+            new Notice("No se encontraron marginalias para convertir.");
+        }
+    }
+
+    async restoreFromPrint(editor: Editor) {
+        let content = editor.getValue();
+        let modified = false;
+
+        // Buscamos exactamente el span que creamos y devolvemos su contenido original
+        const newContent = content.replace(/<span class="cornell-print-margin" data-original="(.*?)".*?<\/span>/gs, (match, safeOriginal) => {
+            modified = true;
+            return decodeURIComponent(safeOriginal);
+        });
+
+        if (modified) {
+            editor.setValue(newContent);
+            new Notice("¡Nota restaurada a formato Markdown original!");
+        } else {
+            new Notice("No hay marginalias preparadas para restaurar.");
+        }
+    }
 }
