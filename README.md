@@ -33,45 +33,78 @@ Start your note with a specific symbol to automatically color-code it. Perfect f
 
 > *Note: You can fully customize these prefixes and colors in the settings!*
 
-### 3. 🙈 Active Recall Mode (Blur)
+3. 🧭 Marginalia Explorer (Sidebar) [NEW]
 
-Toggle the **"Eye" Icon 👁️** in the ribbon to enter Study Mode.
+Keep track of all your margin notes with a dedicated sidebar view.
 
-* Any note ending in `;;` will **blur** the paragraph it belongs to.
-* **Hover** over the blurred text to reveal the answer.
+    Current Note vs. All Vault: Choose to scan just the active file or your entire vault.
 
-```markdown
+    Smart Grouping: Notes are automatically grouped by their color tags.
+
+    Click-to-Scroll: Click on any note in the sidebar, and Obsidian will instantly open the file and scroll smoothly to the exact line (works natively in both Edit and Reading modes!).
+
+4. 📖 Reading View Support [NEW]
+
+Marginalia now renders beautifully in Reading View!
+
+    Perfect for when you want to review a finished document or prepare for exporting.
+
+    Distraction-Free: Prefer a clean view while reading? You can easily toggle Reading View rendering ON/OFF from the settings or right from the Command Palette.
+
+5. 🙈 Unified Active Recall Mode (Blur)
+
+Toggle the "Eye" Icon 👁️ in the ribbon to enter Study Mode.
+
+    Any note ending in ;; will blur the paragraph it belongs to.
+
+    Hover over the blurred text to reveal the answer.
+
+    Seamless: Works instantly and flawlessly across both Live Preview and Reading View simultaneously!
+
+Markdown
+
 The mitochondria produces energy. %%> What does it produce? ;; %%
 
-```
-
-### 4. 🃏 Flashcard Generator
+6. 🃏 Flashcard Generator
 
 Turn your margin notes into Anki/Spaced Repetition cards instantly.
 
-1. Write a note ending in `;;`.
-2. Run the command **"Flashcards Generation"**.
-3. A `### Flashcards` section will be generated at the bottom of your note automatically!
+    Write a note ending in ;;.
 
-### 5. ⚙️ Full Customization
+    Run the command "Flashcards Generation".
 
-* **Alignment:** Choose betwen **Left** (Classic Cornell) or **Right** (Modern Textbook).
-* **Width:** Adjust the margin width with a slider (15% - 60%).
-* **Typography:** Change font size and font family to match your style.
+    A ### Flashcards section will be generated at the bottom of your note automatically!
 
----
-## ⚡ Shortcuts & Commands
+7. ⚙️ Full Customization
 
-You don't need to type `%%>` manually every time! The plugin includes a smart command to speed up your workflow.
+    Alignment: Choose between Left (Classic Cornell) or Right (Modern Textbook).
 
-### **Insert Margin Note**
+    Width: Adjust the margin width with a slider (15% - 60%).
+
+    Typography: Change font size and font family to match your style.
+
+⚡ Shortcuts & Commands
+
+You don't need to type %%> manually every time or dig through settings! The plugin includes smart commands to speed up your workflow.
+Insert Margin Note
+
 This command intelligently handles the syntax based on your cursor position:
-* **No selection:** Inserts `%%>  %%` and places your cursor **inside**, ready to type.
-* **Text selected:** Wraps your selection automatically (e.g., `%%> Important Concept %%`).
 
-#### **How to set it up:**
-1.  **Command Palette:** Press `Ctrl/Cmd + P` and search for `Cornell Marginalia: Insert Margin Note`.
-2.  **Hotkey (Recommended):** Go to **Settings > Hotkeys**, search for "Cornell", and assign your favorite shortcut (e.g., `Ctrl + M`).
+    No selection: Inserts %%>  %% and places your cursor inside, ready to type.
+
+    Text selected: Wraps your selection automatically (e.g., %%> Important Concept %%).
+
+Toggle & Navigation Commands
+
+    Open Marginalia Explorer: Opens the sidebar to view all your notes.
+
+    Toggle Marginalia in Reading View: Quickly show or hide marginalia when you are in reading mode.
+
+How to set them up:
+
+    Command Palette: Press Ctrl/Cmd + P and search for Cornell Marginalia.
+
+    Hotkey (Recommended): Go to Settings > Hotkeys, search for "Cornell", and assign your favorite shortcuts (e.g., Ctrl + M to insert a note).
 
 ## 📦 Installation
 
