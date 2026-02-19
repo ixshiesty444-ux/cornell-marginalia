@@ -33,7 +33,7 @@ Start your note with a specific symbol to automatically color-code it. Perfect f
 
 > *Note: You can fully customize these prefixes and colors in the settings!*
 
-3. 🧭 Marginalia Explorer (Sidebar) [NEW]
+### 3. 🧭 Marginalia Explorer (Sidebar) [NEW]
 
 Keep track of all your margin notes with a dedicated sidebar view.
 
@@ -43,7 +43,7 @@ Keep track of all your margin notes with a dedicated sidebar view.
 
     Click-to-Scroll: Click on any note in the sidebar, and Obsidian will instantly open the file and scroll smoothly to the exact line (works natively in both Edit and Reading modes!).
 
-4. 📖 Reading View Support [NEW]
+### 4. 📖 Reading View Support [NEW]
 
 Marginalia now renders beautifully in Reading View!
 
@@ -51,7 +51,7 @@ Marginalia now renders beautifully in Reading View!
 
     Distraction-Free: Prefer a clean view while reading? You can easily toggle Reading View rendering ON/OFF from the settings or right from the Command Palette.
 
-5. 🙈 Unified Active Recall Mode (Blur)
+### 5. 🙈 Unified Active Recall Mode (Blur)
 
 Toggle the "Eye" Icon 👁️ in the ribbon to enter Study Mode.
 
@@ -65,7 +65,7 @@ Markdown
 
 The mitochondria produces energy. %%> What does it produce? ;; %%
 
-6. 🃏 Flashcard Generator
+### 6. 🃏 Flashcard Generator
 
 Turn your margin notes into Anki/Spaced Repetition cards instantly.
 
@@ -75,7 +75,7 @@ Turn your margin notes into Anki/Spaced Repetition cards instantly.
 
     A ### Flashcards section will be generated at the bottom of your note automatically!
 
-7. ⚙️ Full Customization
+### 7. ⚙️ Full Customization
 
     Alignment: Choose between Left (Classic Cornell) or Right (Modern Textbook).
 
@@ -83,7 +83,7 @@ Turn your margin notes into Anki/Spaced Repetition cards instantly.
 
     Typography: Change font size and font family to match your style.
 
-⚡ Shortcuts & Commands
+### ⚡ Shortcuts & Commands
 
 You don't need to type %%> manually every time or dig through settings! The plugin includes smart commands to speed up your workflow.
 Insert Margin Note
@@ -94,13 +94,13 @@ This command intelligently handles the syntax based on your cursor position:
 
     Text selected: Wraps your selection automatically (e.g., %%> Important Concept %%).
 
-Toggle & Navigation Commands
+### Toggle & Navigation Commands
 
     Open Marginalia Explorer: Opens the sidebar to view all your notes.
 
     Toggle Marginalia in Reading View: Quickly show or hide marginalia when you are in reading mode.
 
-How to set them up:
+### How to set them up:
 
     Command Palette: Press Ctrl/Cmd + P and search for Cornell Marginalia.
 
