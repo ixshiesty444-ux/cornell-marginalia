@@ -83,6 +83,17 @@ Turn your margin notes into Anki/Spaced Repetition cards instantly.
 
     Typography: Change font size and font family to match your style.
 
+### 8. 🖨️ PDF Export & Printing Support 
+
+Obsidian's native PDF export engine notoriously struggles with floating margin notes. To solve this, Cornell Marginalia includes a dedicated "Print Engine" to guarantee your summaries look perfect and professional on paper or tablets.
+
+**How to export your notes to PDF:**
+1. **Prepare:** Open the Command Palette (`Ctrl/Cmd + P`) and run **"Prepare Marginalia for PDF Print"**. Your `%%>` notes will temporarily transform into safe HTML tags. 
+2. **Export:** Use Obsidian's native "Export to PDF" feature. Your marginalia will automatically align in a clean, classic left-column Cornell layout, and the main text will wrap perfectly around them.
+3. **Restore:** Once your PDF is saved, run **"Restore Marginalia after PDF Print"** to instantly return your text to its original, clean Markdown state.
+
+> ⚠️ **Important:** Always remember to run the *Restore* command after exporting to keep your Markdown files clean and future-proof!
+
 ### ⚡ Shortcuts & Commands
 
 You don't need to type %%> manually every time or dig through settings! The plugin includes smart commands to speed up your workflow.
