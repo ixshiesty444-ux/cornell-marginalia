@@ -130,7 +130,7 @@ const createCornellExtension = (app: App, settings: CornellSettings, getActiveRe
         }
     }
 
-    buildDecorations(view: EditorView) {
+buildDecorations(view: EditorView) {
         const builder = new RangeSetBuilder<Decoration>();
         const file = app.workspace.getActiveFile();
         
@@ -144,24 +144,29 @@ const createCornellExtension = (app: App, settings: CornellSettings, getActiveRe
         const { state } = view;
         const cursorRanges = state.selection.ranges;
 
+        // 🧠 NUEVO: Array para guardar las decoraciones y ordenarlas espacialmente
+        interface DecData { from: number; to: number; dec: Decoration; type: number; }
+        const decorationsData: DecData[] = [];
+
         for (const { from, to } of view.visibleRanges) {
             const text = state.doc.sliceString(from, to);
-            const regex = /%%>(.*?)%%/g;
+            const regex = /%%([><])(.*?)%%/g; 
             let match;
 
             while ((match = regex.exec(text))) {
                 const matchStart = from + match.index;
                 const matchEnd = matchStart + match[0].length;
-                const noteContent = match[1];
+                const direction = match[1]; 
+                const noteContent = match[2]; 
 
                 const tree = syntaxTree(state);
                 const node = tree.resolve(matchStart, 1);
                 const isCode = node.name.includes("code") || node.name.includes("Code") || node.name.includes("math");
                 if (isCode) continue;
 
-                // Check de Cursor
                 let isCursorInside = false;
                 const line = state.doc.lineAt(matchStart);
+                
                 for (const range of cursorRanges) {
                     if (range.from >= line.from && range.to <= line.to) {
                         isCursorInside = true;
@@ -171,14 +176,14 @@ const createCornellExtension = (app: App, settings: CornellSettings, getActiveRe
 
                 if (isCursorInside) continue;
 
-                // --- LÓGICA DE ACTIVE RECALL (BLUR) UNIFICADA ---
+                // --- 1. LÓGICA DE FLASHCARDS (Tipo 0) ---
                 if (noteContent.trim().endsWith(";;")) {
-                    builder.add(line.from, line.from, Decoration.line({
-                        class: "cornell-flashcard-target"
-                    }));
+                    decorationsData.push({
+                        from: line.from, to: line.from, type: 0,
+                        dec: Decoration.line({ class: "cornell-flashcard-target" })
+                    });
                 }
 
-                // --- LÓGICA DE MARGINALIA ---
                 let matchedColor = null;
                 let finalNoteText = noteContent.trim(); 
                 
@@ -190,14 +195,38 @@ const createCornellExtension = (app: App, settings: CornellSettings, getActiveRe
                     }
                 }
 
-                // Si el texto quedó completamente vacío (ej. solo pusieron "%%> ! %%"), ignoramos la nota
                 if (finalNoteText.length === 0) continue;
 
-                builder.add(matchStart, matchEnd, Decoration.replace({
-                    widget: new MarginNoteWidget(finalNoteText, app, matchedColor, file?.path || "")
-                }));
+                // --- 2. EL TELETRANSPORTADOR (Tipo 1: Widget al inicio) ---
+                decorationsData.push({
+                    from: line.from, // <- MAGIA: Lo inyectamos al principio de la línea
+                    to: line.from, 
+                    type: 1,
+                    dec: Decoration.widget({
+                        widget: new MarginNoteWidget(finalNoteText, app, matchedColor, file?.path || "", direction),
+                        side: -1 // Lo empuja antes del primer carácter
+                    })
+                });
+
+                // --- 3. EL BORRADOR (Tipo 2: Ocultar texto original) ---
+                decorationsData.push({
+                    from: matchStart, // <- Ocultamos donde realmente está escrito
+                    to: matchEnd, 
+                    type: 2,
+                    dec: Decoration.replace({}) // Replace vacío para hacerlo invisible
+                });
             }
         }
+
+        // 🧠 Ordenamiento estricto necesario para que el motor CodeMirror 6 no colapse
+        decorationsData.sort((a, b) => {
+            if (a.from !== b.from) return a.from - b.from;
+            return a.type - b.type; // Prioridad: Line -> Widget -> Replace
+        });
+
+        // Aplicamos al constructor final
+        decorationsData.forEach(d => builder.add(d.from, d.to, d.dec));
+
         return builder.finish();
     }
 }, {
@@ -344,7 +373,7 @@ class CornellNotesView extends ItemView {
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
-                const lineRegex = /%%>(.*?)%%/g;
+                const lineRegex = /%%[><](.*?)%%/g;
                 let match;
 
                 while ((match = lineRegex.exec(line)) !== null) {
@@ -778,11 +807,15 @@ export default class CornellMarginalia extends Plugin {
                     liIndex++;
                 }
 
-                const regex = /%%>(.*?)%%/g;
+// 1. EL NUEVO REGEX BIDIRECCIONAL
+                const regex = /%%([><])(.*?)%%/g;
                 let match;
                 
                 while ((match = regex.exec(line)) !== null) {
-                    const noteContent = match[1].trim();
+                    // 2. EXTRAEMOS LA FLECHA Y EL TEXTO (Una sola vez)
+                    const direction = match[1];
+                    const noteContent = match[2].trim();
+                    
                     const isFlashcard = noteContent.endsWith(";;");
 
                     let matchedColor = null;
@@ -812,6 +845,7 @@ export default class CornellMarginalia extends Plugin {
 
                     const marginDiv = document.createElement("div");
                     marginDiv.className = "cm-cornell-margin reading-mode-margin"; 
+                    if (direction === "<") marginDiv.classList.add("cornell-reverse-align");
                     
                     if (matchedColor) {
                         marginDiv.style.setProperty('border-color', matchedColor, 'important');
@@ -839,7 +873,7 @@ export default class CornellMarginalia extends Plugin {
                     }
 
                     currentTarget.classList.add('cornell-reading-block');
-                    currentTarget.appendChild(marginDiv);
+                    currentTarget.prepend(marginDiv);
 
                     if (isFlashcard) {
                         currentTarget.classList.add('cornell-flashcard-target');
@@ -946,24 +980,22 @@ async activateView() {
         }
     }
 
-    updateStyles() {
+updateStyles() {
         document.body.style.setProperty('--cornell-width', `${this.settings.marginWidth}%`);
         document.body.style.setProperty('--cornell-font-size', this.settings.fontSize);
         document.body.style.setProperty('--cornell-font-family', this.settings.fontFamily);
         
         if (this.settings.alignment === 'left') {
-            document.body.style.setProperty('--cornell-left', 'auto');
-            document.body.style.setProperty('--cornell-right', '100%');
+            document.body.style.setProperty('--cornell-float', 'left');
+            document.body.style.setProperty('--cornell-margin-left', `calc(-1 * var(--cornell-width) - 20px)`);
             document.body.style.setProperty('--cornell-margin-right', '15px');
-            document.body.style.setProperty('--cornell-margin-left', '0');
             document.body.style.setProperty('--cornell-border-r', '2px solid var(--text-accent)');
             document.body.style.setProperty('--cornell-border-l', 'none');
             document.body.style.setProperty('--cornell-text-align', 'right');
         } else {
-            document.body.style.setProperty('--cornell-left', '100%');
-            document.body.style.setProperty('--cornell-right', 'auto');
+            document.body.style.setProperty('--cornell-float', 'right');
+            document.body.style.setProperty('--cornell-margin-right', `calc(-1 * var(--cornell-width) - 20px)`);
             document.body.style.setProperty('--cornell-margin-left', '15px');
-            document.body.style.setProperty('--cornell-margin-right', '0');
             document.body.style.setProperty('--cornell-border-l', '2px solid var(--text-accent)');
             document.body.style.setProperty('--cornell-border-r', 'none');
             document.body.style.setProperty('--cornell-text-align', 'left');

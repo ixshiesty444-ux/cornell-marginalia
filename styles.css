@@ -18,21 +18,30 @@
     --cornell-font-family: inherit;
 }
 
+/* ======================================================
+   🛠️ FIX: APILAMIENTO DE NOTAS (STACKING) & ESTÉTICA
+   ====================================================== */
+
 .cm-cornell-margin {
-    position: absolute;
-    width: var(--cornell-width);
-    top: 0;
+    /* 1. EL NUEVO MOTOR DE APILAMIENTO (Reemplaza a position: absolute) */
+    position: relative !important;
+    display: block !important;
+    float: var(--cornell-float) !important;
+    clear: var(--cornell-float) !important;
     
-    left: var(--cornell-left);
-    right: var(--cornell-right);
-    margin-left: var(--cornell-margin-left);
-    margin-right: var(--cornell-margin-right);
+    width: var(--cornell-width) !important;
+    margin-left: var(--cornell-margin-left) !important;
+    margin-right: var(--cornell-margin-right) !important;
     
+    /* Espaciado para que no se peguen cuando hay varias */
+    margin-top: 4px !important;
+    margin-bottom: 12px !important;
+    
+    /* 2. TU ESTÉTICA ORIGINAL (Intacta) */
     background-color: var(--cornell-bg);
     border-left: var(--cornell-border-l);
     border-right: var(--cornell-border-r);
     
-    /* APLICAMOS LAS VARIABLES */
     font-size: var(--cornell-font-size); 
     font-family: var(--cornell-font-family);
     
@@ -49,6 +58,7 @@
     pointer-events: none; 
 }
 
+/* 3. TUS REGLAS PARA HIJOS Y ENLACES (Intactas) */
 .cm-cornell-margin * { pointer-events: auto; }
 .cm-cornell-margin p { margin: 0 !important; display: inline; }
 .cm-cornell-margin a { color: inherit; text-decoration: underline; }
@@ -58,6 +68,29 @@
     color: inherit !important;
 }
 
+/* ======================================================
+   🔄 LÓGICA PARA LA FLECHA INVERSA (%%<)
+   ====================================================== */
+
+body[style*="--cornell-float: right"] .cornell-reverse-align {
+    float: left !important;
+    clear: left !important;
+    margin-left: calc(-1 * var(--cornell-width) - 20px) !important;
+    margin-right: 15px !important;
+    text-align: right !important;
+    border-right: 2px solid var(--text-accent) !important;
+    border-left: none !important;
+}
+
+body[style*="--cornell-float: left"] .cornell-reverse-align {
+    float: right !important;
+    clear: right !important;
+    margin-right: calc(-1 * var(--cornell-width) - 20px) !important;
+    margin-left: 15px !important;
+    text-align: left !important;
+    border-left: 2px solid var(--text-accent) !important;
+    border-right: none !important;
+}
 
 
 
