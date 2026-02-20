@@ -37,7 +37,15 @@ Start your note with a specific symbol to automatically color-code it. Perfect f
 
 > *Note: You can fully customize these prefixes and colors in the settings!*
 
-### 3. 🧭 Marginalia Explorer (Sidebar) [NEW]
+### 3. 🖼️ Adding Images (Multimedia Support) [NEW]
+
+You can easily embed images directly into your margins to create highly visual notes. To prevent conflicts with Obsidian's core Markdown engine, this plugin uses a special `img:` prefix. 
+
+* **Syntax:** `%%> img:[[your_image.png]] %%`
+* **Autocomplete:** As soon as you type `[[`, Obsidian's native file autocomplete will still pop up, meaning you don't have to memorize filenames!
+* **Hover Zoom:** Images automatically scale to fit your custom margin width. Simply hover your mouse over any margin image to trigger a magnifying zoom effect, allowing you to see fine details without taking up space in your main text.
+
+### 4. 🧭 Marginalia Explorer (Sidebar) [NEW]
 
 Keep track of all your margin notes with a dedicated sidebar view.
 
@@ -47,7 +55,7 @@ Keep track of all your margin notes with a dedicated sidebar view.
 
     Click-to-Scroll: Click on any note in the sidebar, and Obsidian will instantly open the file and scroll smoothly to the exact line (works natively in both Edit and Reading modes!).
 
-### 4. 📖 Reading View Support [NEW]
+### 5. 📖 Reading View Support [NEW]
 
 Marginalia now renders beautifully in Reading View!
 
@@ -55,7 +63,7 @@ Marginalia now renders beautifully in Reading View!
 
     Distraction-Free: Prefer a clean view while reading? You can easily toggle Reading View rendering ON/OFF from the settings or right from the Command Palette.
 
-### 5. 🙈 Unified Active Recall Mode (Blur)
+### 6. 🙈 Unified Active Recall Mode (Blur)
 
 Toggle the "Eye" Icon 👁️ in the ribbon to enter Study Mode.
 
@@ -69,7 +77,7 @@ Example:
 
 The mitochondria produces energy. %%> What does it produce? ;; %%
 
-### 6. 🃏 Flashcard Generator
+### 7. 🃏 Flashcard Generator
 
 Turn your margin notes into Anki/Spaced Repetition cards instantly.
 
@@ -79,7 +87,7 @@ Turn your margin notes into Anki/Spaced Repetition cards instantly.
 
     A ### Flashcards section will be generated at the bottom of your note automatically!
 
-### 7. ⚙️ Full Customization
+### 8. ⚙️ Full Customization
 
     Alignment: Choose between Left (Classic Cornell) or Right (Modern Textbook).
 
@@ -87,7 +95,7 @@ Turn your margin notes into Anki/Spaced Repetition cards instantly.
 
     Typography: Change font size and font family to match your style.
 
-### 8. 🖨️ PDF Export & Printing Support 
+### 9. 🖨️ PDF Export & Printing Support 
 
 Obsidian's native PDF export engine notoriously struggles with floating margin notes. To solve this, Cornell Marginalia includes a dedicated "Print Engine" to guarantee your summaries look perfect and professional on paper or tablets.
 
@@ -98,7 +106,7 @@ Obsidian's native PDF export engine notoriously struggles with floating margin n
 
 > ⚠️ **Important:** Always remember to run the *Restore* command after exporting to keep your Markdown files clean and future-proof!
 
-### 9. 🚀 Drag & Drop Integration (Excalidraw & Canvas) 
+### 10. 🚀 Drag & Drop Integration (Excalidraw & Canvas) 
 
 Marginalia is no longer just for reading; it's a tool for connecting ideas! 
 
@@ -106,14 +114,16 @@ You can now click and drag any note directly from the **Marginalia Explorer** si
 * The plugin instantly creates a native, indestructible Block ID link behind the scenes.
 * Clicking the dropped node in your canvas will open the source file and scroll you down to the exact paragraph where the note belongs. Perfect for building mind maps from your summaries!
 
-### 10. 🧵 Margin Threads (Zettelkasten in the Margins) 
+### 11. 🧵 Margin Threads (Zettelkasten in the Margins) 
 
 Why limit your connections to main text? You can now stitch your marginalia notes together across your entire vault to create independent, multi-level thought threads.
 
-* **The Stitch Button:** Easily connect a note from one file to a note in another using the Sidebar. 
+* **The Stitch Button:** Easily connect a note from one file to a note in another using the Sidebar.
+* **Drag & Drop Stitching:** To connect two thoughts, simply click and drag one note, then drop it on top of another note. The plugin will automatically write the code to link them. 
 * **Recursive Tree View:** The "Threads" tab automatically renders infinite-level hierarchical trees of your connected notes. Follow a concept down the rabbit hole!
 * **Smart Focus & Filters:** Click on a color pill (e.g., Yellow for 'Questions') to instantly filter your threads. The plugin is smart enough to show you the exact parent note your filtered concept came from, preserving your context.
 * **Native & Future-Proof:** Threads use hidden, native Obsidian Block IDs (`[[Note#^id]]`). Your connections will survive file renames and will even show up in your native Obsidian Graph View!
+* * **Hover Peeks:** Whenever a note is part of a thread, a `🔗` button appears inside the marginalia. Hover your mouse over this button to instantly preview the connected note in a native popup, without ever leaving your current reading flow.
 
 ### ⚡ Shortcuts & Commands
 
