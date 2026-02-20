@@ -123,7 +123,7 @@ Why limit your connections to main text? You can now stitch your marginalia note
 * **Recursive Tree View:** The "Threads" tab automatically renders infinite-level hierarchical trees of your connected notes. Follow a concept down the rabbit hole!
 * **Smart Focus & Filters:** Click on a color pill (e.g., Yellow for 'Questions') to instantly filter your threads. The plugin is smart enough to show you the exact parent note your filtered concept came from, preserving your context.
 * **Native & Future-Proof:** Threads use hidden, native Obsidian Block IDs (`[[Note#^id]]`). Your connections will survive file renames and will even show up in your native Obsidian Graph View!
-* * **Hover Peeks:** Whenever a note is part of a thread, a `🔗` button appears inside the marginalia. Hover your mouse over this button to instantly preview the connected note in a native popup, without ever leaving your current reading flow.
+* **Hover Peeks:** Whenever a note is part of a thread, a `🔗` button appears inside the marginalia. Hover your mouse over this button to instantly preview the connected note in a native popup, without ever leaving your current reading flow.
 
 ### ⚡ Shortcuts & Commands
 
