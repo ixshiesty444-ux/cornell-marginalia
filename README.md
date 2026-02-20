@@ -3,7 +3,7 @@
 </p>
 
 
-# Cornell Marginalia for Obsidian 🩺
+# Cornell Marginalia for Obsidian 
 
 A powerful study companion for Obsidian designed for students (Med, Law, Engineering) who use the **Cornell Note-taking System**.
 
