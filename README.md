@@ -1,3 +1,6 @@
+<p align="center">
+  <img src="assets/marginalia logo.png" width="600" title="Marginalia">
+</p>
 
 
 # Cornell Marginalia for Obsidian 🩺
@@ -166,5 +169,5 @@ If you find this plugin useful for your studies, consider buying me a coffee! It
 ## Examples
 
 <p align="center">
-  <img src="assets/marginalia2.png" width="600" title="Marginalia">
+  <img src="assets/marginalia final.png" width="600" title="Marginalia">
 </p>
