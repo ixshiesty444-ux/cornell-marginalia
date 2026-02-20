@@ -102,6 +102,15 @@ You can now click and drag any note directly from the **Marginalia Explorer** si
 * The plugin instantly creates a native, indestructible Block ID link behind the scenes.
 * Clicking the dropped node in your canvas will open the source file and scroll you down to the exact paragraph where the note belongs. Perfect for building mind maps from your summaries!
 
+### 10. 🧵 Margin Threads (Zettelkasten in the Margins) [NEW in v3.0.0]
+
+Why limit your connections to main text? You can now stitch your marginalia notes together across your entire vault to create independent, multi-level thought threads.
+
+* **The Stitch Button:** Easily connect a note from one file to a note in another using the Sidebar. 
+* **Recursive Tree View:** The "Threads" tab automatically renders infinite-level hierarchical trees of your connected notes. Follow a concept down the rabbit hole!
+* **Smart Focus & Filters:** Click on a color pill (e.g., Yellow for 'Questions') to instantly filter your threads. The plugin is smart enough to show you the exact parent note your filtered concept came from, preserving your context.
+* **Native & Future-Proof:** Threads use hidden, native Obsidian Block IDs (`[[Note#^id]]`). Your connections will survive file renames and will even show up in your native Obsidian Graph View!
+
 ### ⚡ Shortcuts & Commands
 
 You don't need to type %%> manually every time or dig through settings! The plugin includes smart commands to speed up your workflow.
