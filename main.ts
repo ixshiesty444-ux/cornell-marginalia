@@ -59,7 +59,7 @@ class MarginNoteWidget extends WidgetType {
         readonly sourcePath: string = "" // Necesario para que Obsidian sepa de dónde saltamos
     ) { super(); }
 
-    toDOM(view: EditorView): HTMLElement {
+toDOM(view: EditorView): HTMLElement {
         const div = document.createElement("div");
         div.className = "cm-cornell-margin";
         
@@ -68,46 +68,69 @@ class MarginNoteWidget extends WidgetType {
             div.style.color = this.customColor;       
         }
 
-        // 1. CAZADOR DE ENLACES: Buscamos cualquier [[Enlace]] en el texto
-        const linkRegex = /\[\[(.*?)\]\]/g;
+        // --- 1. EL CABALLO DE TROYA (Cazador de Imágenes) ---
         let finalRenderText = this.text;
+        const imagesToRender: string[] = [];
+
+        // Tomamos una "fotografía" de todas las imágenes
+        const imgMatches = Array.from(finalRenderText.matchAll(/img:\[\[(.*?)\]\]/g));
+        imgMatches.forEach(m => imagesToRender.push(m[1]));
+        
+        // Las borramos todas juntas del texto visible
+        finalRenderText = finalRenderText.replace(/img:\[\[(.*?)\]\]/g, '').trim();
+
+        // --- 2. CAZADOR DE ENLACES MÚLTIPLES ---
         const threadLinks: string[] = [];
         
-        let match;
-        while ((match = linkRegex.exec(this.text)) !== null) {
-            threadLinks.push(match[1]); // Guardamos el destino (ej. "Glaucoma#^123")
-            finalRenderText = finalRenderText.replace(match[0], '').trim(); // Borramos el [[...]] del texto visible
-        }
+        // Tomamos una "fotografía" de todos los enlaces
+        const linkMatches = Array.from(finalRenderText.matchAll(/(?<!!)\[\[(.*?)\]\]/g));
+        linkMatches.forEach(m => threadLinks.push(m[1]));
+        
+        // Los borramos todos juntos
+        finalRenderText = finalRenderText.replace(/(?<!!)\[\[(.*?)\]\]/g, '').trim();
 
-        // 2. Renderizamos el texto limpio (sin los corchetes feos)
+        // --- 3. RENDERIZAR EL TEXTO LIMPIO ---
         MarkdownRenderer.render(this.app, finalRenderText, div, this.sourcePath, new Component());
         
-        // 3. Si encontramos enlaces, creamos los botones del "Hilo"
+        // --- 4. DIBUJAR LAS IMÁGENES EN EL MARGEN ---
+        if (imagesToRender.length > 0) {
+            imagesToRender.forEach(imgName => {
+                const cleanName = imgName.split('|')[0]; // Por si usas img:[[gato.png|200]]
+                const file = this.app.metadataCache.getFirstLinkpathDest(cleanName, this.sourcePath);
+                
+                if (file) {
+                    const imgSrc = this.app.vault.getResourcePath(file);
+                    div.createEl('img', { attr: { src: imgSrc } });
+                } else {
+                    div.createDiv({ text: `⚠️ Imagen no encontrada: ${cleanName}`, cls: 'cornell-sidebar-item-text' });
+                }
+            });
+        }
+
+        // --- 5. BOTONES DE HILOS ---
         if (threadLinks.length > 0) {
             const threadContainer = div.createDiv({ cls: 'cornell-thread-container' });
             
             threadLinks.forEach(linkTarget => {
-                const btn = threadContainer.createEl('button', { 
-                    cls: 'cornell-thread-btn', 
-                    title: `Follow thread: ${linkTarget}` 
-                });
-                
-                // Usamos un emoji de hilo o eslabón como ícono
+                const btn = threadContainer.createEl('button', { cls: 'cornell-thread-btn', title: `Follow thread: ${linkTarget}` });
                 btn.innerHTML = '🔗'; 
                 
-                // Lógica de teletransporte nativo de Obsidian
                 btn.onclick = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation(); 
-                    // true = abre la nota en una pestaña nueva al lado (ideal para estudiar dos cosas a la vez)
+                    e.preventDefault(); e.stopPropagation(); 
                     this.app.workspace.openLinkText(linkTarget, this.sourcePath, true); 
+                };
+
+                btn.onmouseover = (event) => {
+                    this.app.workspace.trigger('hover-link', {
+                        event: event, source: 'cornell-marginalia', hoverParent: threadContainer,
+                        targetEl: btn, linktext: linkTarget, sourcePath: this.sourcePath
+                    });
                 };
             });
         }
 
         div.onclick = (e) => {
             const target = e.target as HTMLElement;
-            // Evitamos bloquear el clic si tocamos nuestro nuevo botón
             if (target.tagName !== 'A' && !target.hasClass('cornell-thread-btn')) e.preventDefault();
         };
         return div;
@@ -150,7 +173,7 @@ buildDecorations(view: EditorView) {
 
         for (const { from, to } of view.visibleRanges) {
             const text = state.doc.sliceString(from, to);
-            const regex = /%%([><])(.*?)%%/g; 
+            const regex = /%%([><])([\s\S]*?)%%/g;
             let match;
 
             while ((match = regex.exec(text))) {
@@ -208,12 +231,12 @@ buildDecorations(view: EditorView) {
                     })
                 });
 
-                // --- 3. EL BORRADOR (Tipo 2: Ocultar texto original) ---
+// --- 3. EL BORRADOR (Tipo 2: Pintar de invisible en lugar de reemplazar) ---
                 decorationsData.push({
-                    from: matchStart, // <- Ocultamos donde realmente está escrito
+                    from: matchStart, 
                     to: matchEnd, 
                     type: 2,
-                    dec: Decoration.replace({}) // Replace vacío para hacerlo invisible
+                    dec: Decoration.mark({ class: "cornell-hide-raw" }) // Usamos mark para no pelear con Obsidian
                 });
             }
         }
@@ -250,6 +273,9 @@ class CornellNotesView extends ItemView {
     searchQuery: string = '';
     activeColorFilters: Set<string> = new Set();
     cachedItems: MarginaliaItem[] = []; 
+
+    // 🧠 NUEVO: Memoria para el Drag & Drop interno
+    draggedSidebarItem: MarginaliaItem | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: CornellMarginalia) {
         super(leaf);
@@ -586,7 +612,7 @@ class CornellNotesView extends ItemView {
         if (totalFound === 0) container.createEl('p', { text: 'No notes match your search.', cls: 'cornell-sidebar-empty' });
     }
 
-    createItemDiv(item: MarginaliaItem, parentContainer: HTMLElement): HTMLElement {
+createItemDiv(item: MarginaliaItem, parentContainer: HTMLElement): HTMLElement {
         const itemDiv = parentContainer.createDiv({ cls: 'cornell-sidebar-item' });
         itemDiv.style.borderLeftColor = item.color;
 
@@ -616,10 +642,18 @@ class CornellNotesView extends ItemView {
             await leaf.openFile(item.file, { eState: { line: item.line } });
         };
 
+        // ======================================================
+        // 🎯 EL NUEVO MOTOR DRAG & DROP (VERSIÓN BLINDADA)
+        // ======================================================
         itemDiv.setAttr('draggable', 'true');
+        
+        // 1. AL EMPEZAR A ARRASTRAR
         itemDiv.addEventListener('dragstart', (event: DragEvent) => {
             if (!event.dataTransfer) return;
-            event.dataTransfer.effectAllowed = 'copy';
+            
+            // Usamos 'copy' estándar para evitar conflictos de seguridad en el navegador
+            event.dataTransfer.effectAllowed = 'copy'; 
+            
             let targetId = item.blockId;
             if (!targetId) {
                 targetId = Math.random().toString(36).substring(2, 8);
@@ -628,9 +662,53 @@ class CornellNotesView extends ItemView {
             }
             const dragPayload = `[[${item.file.basename}#^${targetId}|${item.text}]]`;
             event.dataTransfer.setData('text/plain', dragPayload);
+
+            this.draggedSidebarItem = item; 
         });
 
-        return itemDiv;
+        // 2. AL TERMINAR (Limpieza de seguridad)
+        itemDiv.addEventListener('dragend', () => {
+            this.draggedSidebarItem = null; 
+            itemDiv.removeClass('cornell-drop-target');
+        });
+
+        // 3. NUEVO: DRAG ENTER (Crucial para que el navegador conceda el permiso)
+        itemDiv.addEventListener('dragenter', (e: DragEvent) => {
+            e.preventDefault(); 
+            if (this.draggedSidebarItem && this.draggedSidebarItem !== item) {
+                itemDiv.addClass('cornell-drop-target');
+            }
+        });
+
+        // 4. DRAG OVER (Mantener el permiso activo)
+        itemDiv.addEventListener('dragover', (e: DragEvent) => {
+            e.preventDefault(); 
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; // Debe coincidir con dragstart
+        });
+
+        // 5. DRAG LEAVE (Apagar luces al salir)
+        itemDiv.addEventListener('dragleave', () => {
+            itemDiv.removeClass('cornell-drop-target'); 
+        });
+
+        // 6. DROP (La costura final)
+        itemDiv.addEventListener('drop', async (e: DragEvent) => {
+            e.preventDefault();
+            
+            // 🛡️ EL ESCUDO: Evita que el núcleo de Obsidian se robe el evento
+            e.stopPropagation(); 
+            
+            itemDiv.removeClass('cornell-drop-target');
+
+            if (this.draggedSidebarItem && this.draggedSidebarItem !== item) {
+                await this.executeStitch(item, this.draggedSidebarItem);
+                
+                this.draggedSidebarItem = null;
+                await this.scanNotes(); 
+            }
+        });
+
+        return itemDiv; // (Asegúrate de que esta línea siga estando al final)
     }
 
     async executeStitch(source: MarginaliaItem, target: MarginaliaItem) {
@@ -784,7 +862,7 @@ export default class CornellMarginalia extends Plugin {
             }
         });
 
-        this.registerMarkdownPostProcessor((el, ctx) => {
+this.registerMarkdownPostProcessor((el, ctx) => {
             if (!this.settings.enableReadingView) return;
             
             const sectionInfo = ctx.getSectionInfo(el);
@@ -807,16 +885,17 @@ export default class CornellMarginalia extends Plugin {
                     liIndex++;
                 }
 
-// 1. EL NUEVO REGEX BIDIRECCIONAL
                 const regex = /%%([><])(.*?)%%/g;
                 let match;
                 
                 while ((match = regex.exec(line)) !== null) {
-                    // 2. EXTRAEMOS LA FLECHA Y EL TEXTO (Una sola vez)
                     const direction = match[1];
-                    const noteContent = match[2].trim();
-                    
+                    let noteContent = match[2].trim();
                     const isFlashcard = noteContent.endsWith(";;");
+                    
+                    if (isFlashcard) {
+                        noteContent = noteContent.slice(0, -2).trim();
+                    }
 
                     let matchedColor = null;
                     let finalNoteText = noteContent;
@@ -829,55 +908,117 @@ export default class CornellMarginalia extends Plugin {
                         }
                     }
 
-// Prevenir cajas vacías
-                    if (finalNoteText.length === 0) continue;
-
-                    // 1. CAZADOR DE ENLACES PARA MODO LECTURA
-                    const linkRegex = /\[\[(.*?)\]\]/g;
+                    // --- 1. CABALLO DE TROYA (Imágenes) ---
                     let finalRenderText = finalNoteText;
+                    const imagesToRender: string[] = [];
+                    
+                    const imgMatches = Array.from(finalRenderText.matchAll(/img:\[\[(.*?)\]\]/g));
+                    imgMatches.forEach(m => imagesToRender.push(m[1]));
+                    finalRenderText = finalRenderText.replace(/img:\[\[(.*?)\]\]/g, '').trim();
+
+                    // --- 2. CAZADOR DE ENLACES MÚLTIPLES ---
                     const threadLinks: string[] = [];
                     
-                    let matchLink;
-                    while ((matchLink = linkRegex.exec(finalNoteText)) !== null) {
-                        threadLinks.push(matchLink[1]);
-                        finalRenderText = finalRenderText.replace(matchLink[0], '').trim();
-                    }
-
+                    const linkMatches = Array.from(finalRenderText.matchAll(/(?<!!)\[\[(.*?)\]\]/g));
+                    linkMatches.forEach(m => threadLinks.push(m[1]));
+                    finalRenderText = finalRenderText.replace(/(?<!!)\[\[(.*?)\]\]/g, '').trim();
+                    // --- 3. CREAR LA NOTA ---
                     const marginDiv = document.createElement("div");
                     marginDiv.className = "cm-cornell-margin reading-mode-margin"; 
-                    if (direction === "<") marginDiv.classList.add("cornell-reverse-align");
                     
                     if (matchedColor) {
                         marginDiv.style.setProperty('border-color', matchedColor, 'important');
                         marginDiv.style.setProperty('color', matchedColor, 'important');
                     }
 
-                    // 2. Renderizamos el texto limpio
                     MarkdownRenderer.render(this.app, finalRenderText, marginDiv, ctx.sourcePath, this);
 
-                    // 3. Inyectamos los botones del hilo si existen
+                    if (imagesToRender.length > 0) {
+                        imagesToRender.forEach(imgName => {
+                            const cleanName = imgName.split('|')[0];
+                            const file = this.app.metadataCache.getFirstLinkpathDest(cleanName, ctx.sourcePath);
+                            if (file) {
+                                const imgSrc = this.app.vault.getResourcePath(file);
+                                marginDiv.createEl('img', { attr: { src: imgSrc } });
+                            }
+                        });
+                    }
+
                     if (threadLinks.length > 0) {
                         const threadContainer = marginDiv.createDiv({ cls: 'cornell-thread-container' });
                         threadLinks.forEach(linkTarget => {
-                            const btn = threadContainer.createEl('button', { 
-                                cls: 'cornell-thread-btn', 
-                                title: `Follow thread: ${linkTarget}` 
-                            });
+                            const btn = threadContainer.createEl('button', { cls: 'cornell-thread-btn', title: `Follow thread: ${linkTarget}` });
                             btn.innerHTML = '🔗'; 
                             btn.onclick = (e) => {
-                                e.preventDefault();
-                                e.stopPropagation(); 
+                                e.preventDefault(); e.stopPropagation(); 
                                 this.app.workspace.openLinkText(linkTarget, ctx.sourcePath, true); 
+                            };
+                            btn.onmouseover = (event) => {
+                                this.app.workspace.trigger('hover-link', {
+                                    event: event, source: 'cornell-marginalia', hoverParent: threadContainer,
+                                    targetEl: btn, linktext: linkTarget, sourcePath: ctx.sourcePath
+                                });
                             };
                         });
                     }
 
-                    currentTarget.classList.add('cornell-reading-block');
-                    currentTarget.prepend(marginDiv);
+                    // --- 4. LA MAGIA DE LAS CAJAS (Columnas Invisibles) ---
+                    currentTarget.classList.add('cornell-reading-container');
+                    
+                    const isMainLeft = this.settings.alignment === 'left';
+                    const isNoteLeft = (isMainLeft && direction === '>') || (!isMainLeft && direction === '<');
+
+                    // Convertimos la nota a Relativa para que se apile SOLA dentro de su columna
+                    marginDiv.style.setProperty('position', 'relative', 'important');
+                    marginDiv.style.setProperty('width', '100%', 'important');
+                    marginDiv.style.setProperty('left', 'auto', 'important');
+                    marginDiv.style.setProperty('right', 'auto', 'important');
+                    marginDiv.style.setProperty('margin-top', '0', 'important');
+                    marginDiv.style.setProperty('margin-bottom', '12px', 'important');
+
+                    // Buscamos o creamos la columna correspondiente (Izquierda o Derecha)
+                    let colClass = isNoteLeft ? 'cornell-col-left' : 'cornell-col-right';
+                    let column = Array.from(currentTarget.children).find(c => c.classList.contains(colClass)) as HTMLElement;
+                    
+                    if (!column) {
+                        column = document.createElement('div');
+                        column.className = colClass;
+                        column.style.setProperty('position', 'absolute', 'important');
+                        column.style.setProperty('top', '0', 'important');
+                        column.style.setProperty('width', 'var(--cornell-width)', 'important');
+                        
+                        if (isNoteLeft) {
+                            column.style.setProperty('left', 'var(--cornell-margin-left)', 'important');
+                        } else {
+                            column.style.setProperty('right', 'calc(-1 * var(--cornell-width) - 20px)', 'important');
+                        }
+                        currentTarget.appendChild(column);
+                    }
+
+                    if ((isMainLeft && direction === '<') || (!isMainLeft && direction === '>')) {
+                        marginDiv.classList.add('cornell-reverse-align');
+                    }
+
+                    column.appendChild(marginDiv);
 
                     if (isFlashcard) {
                         currentTarget.classList.add('cornell-flashcard-target');
                     }
+                    
+                    // --- 5. EL SENSOR DE ALTURA ---
+                    // Esperamos una fracción de segundo a que la nota se dibuje y medimos la columna
+                    setTimeout(() => {
+                        const colLeft = Array.from(currentTarget.children).find(c => c.classList.contains('cornell-col-left')) as HTMLElement;
+                        const colRight = Array.from(currentTarget.children).find(c => c.classList.contains('cornell-col-right')) as HTMLElement;
+                        
+                        let maxH = 0;
+                        if (colLeft) maxH = Math.max(maxH, colLeft.offsetHeight);
+                        if (colRight) maxH = Math.max(maxH, colRight.offsetHeight);
+                        
+                        if (maxH > 0) {
+                            currentTarget.style.minHeight = `${maxH + 10}px`; // Estiramos el párrafo para proteger las notas
+                        }
+                    }, 100);
                 }
             });
         });
