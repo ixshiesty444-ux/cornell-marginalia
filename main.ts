@@ -1,14 +1,7 @@
-import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component, Editor, Notice, MarkdownView, ItemView, WorkspaceLeaf, TFile } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component, Editor, Notice, MarkdownView, ItemView, WorkspaceLeaf, TFile, Modal } from 'obsidian';
 import { RangeSetBuilder } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
-import { 
-    EditorView, 
-    Decoration, 
-    DecorationSet, 
-    ViewPlugin, 
-    ViewUpdate, 
-    WidgetType
-} from '@codemirror/view';
+import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
 
 // --- ESTRUCTURAS ---
 interface CornellTag {
@@ -23,16 +16,19 @@ interface CornellSettings {
     fontSize: string;
     fontFamily: string;
     tags: CornellTag[];
-    enableReadingView: boolean; // <- NUEVO: modo lectura
-    outgoingLinks: string[]; // <-- NUEVO: hilos
+    enableReadingView: boolean;
+    outgoingLinks: string[]; 
 }
-// barra lateral item
+
 interface MarginaliaItem {
     text: string;
+    rawText: string; // 🧠 LA CARA OCULTA: Vital para no corromper enlaces de imágenes
     color: string;
     file: TFile;
     line: number;
-    blockId: string | null; // <- para luego arrastrar
+    blockId: string | null;
+    outgoingLinks: string[];
+    isTitle?: boolean;
 }
 
 const DEFAULT_SETTINGS: CornellSettings = {
@@ -41,25 +37,27 @@ const DEFAULT_SETTINGS: CornellSettings = {
     marginWidth: 25,
     fontSize: '0.85em',
     fontFamily: 'inherit',
-    enableReadingView: true, // <- NUEVO (activado por defecto para que los nuevos usuarios lo vean)
+    enableReadingView: true,
     tags: [
         { prefix: '!', color: '#ffea00' }, 
         { prefix: '?', color: '#ff9900' }, 
         { prefix: 'X-', color: '#ff4d4d' }, 
         { prefix: 'V-', color: '#00cc66' }  
-    ]
+    ],
+    outgoingLinks: []
 }
 
-// --- WIDGET DE MARGEN (ACTUALIZADO PARA HILOS 🧵) ---
+// --- WIDGET DE MARGEN ---
 class MarginNoteWidget extends WidgetType {
     constructor(
         readonly text: string, 
         readonly app: App, 
         readonly customColor: string | null,
-        readonly sourcePath: string = "" // Necesario para que Obsidian sepa de dónde saltamos
+        readonly sourcePath: string = "",
+        readonly direction: string = ">"
     ) { super(); }
 
-toDOM(view: EditorView): HTMLElement {
+    toDOM(view: EditorView): HTMLElement {
         const div = document.createElement("div");
         div.className = "cm-cornell-margin";
         
@@ -68,36 +66,28 @@ toDOM(view: EditorView): HTMLElement {
             div.style.color = this.customColor;       
         }
 
-        // --- 1. EL CABALLO DE TROYA (Cazador de Imágenes) ---
         let finalRenderText = this.text;
         const imagesToRender: string[] = [];
 
-        // Tomamos una "fotografía" de todas las imágenes
-        const imgMatches = Array.from(finalRenderText.matchAll(/img:\[\[(.*?)\]\]/g));
+        // 🛡️ VACUNA REGEX (Cazador de Imágenes blindado)
+        const imgRegex = /img:\s*\[\[(.*?)\]\]/gi;
+        const imgMatches = Array.from(finalRenderText.matchAll(imgRegex));
         imgMatches.forEach(m => imagesToRender.push(m[1]));
-        
-        // Las borramos todas juntas del texto visible
-        finalRenderText = finalRenderText.replace(/img:\[\[(.*?)\]\]/g, '').trim();
+        finalRenderText = finalRenderText.replace(imgRegex, '').trim();
 
-        // --- 2. CAZADOR DE ENLACES MÚLTIPLES ---
+        // 🛡️ CAZADOR DE ENLACES (Blindado contra loops)
         const threadLinks: string[] = [];
-        
-        // Tomamos una "fotografía" de todos los enlaces
-        const linkMatches = Array.from(finalRenderText.matchAll(/(?<!!)\[\[(.*?)\]\]/g));
+        const linkRegex = /(?<!!)\[\[(.*?)\]\]/g;
+        const linkMatches = Array.from(finalRenderText.matchAll(linkRegex));
         linkMatches.forEach(m => threadLinks.push(m[1]));
-        
-        // Los borramos todos juntos
-        finalRenderText = finalRenderText.replace(/(?<!!)\[\[(.*?)\]\]/g, '').trim();
+        finalRenderText = finalRenderText.replace(linkRegex, '').trim();
 
-        // --- 3. RENDERIZAR EL TEXTO LIMPIO ---
         MarkdownRenderer.render(this.app, finalRenderText, div, this.sourcePath, new Component());
         
-        // --- 4. DIBUJAR LAS IMÁGENES EN EL MARGEN ---
         if (imagesToRender.length > 0) {
             imagesToRender.forEach(imgName => {
-                const cleanName = imgName.split('|')[0]; // Por si usas img:[[gato.png|200]]
+                const cleanName = imgName.split('|')[0];
                 const file = this.app.metadataCache.getFirstLinkpathDest(cleanName, this.sourcePath);
-                
                 if (file) {
                     const imgSrc = this.app.vault.getResourcePath(file);
                     div.createEl('img', { attr: { src: imgSrc } });
@@ -107,19 +97,15 @@ toDOM(view: EditorView): HTMLElement {
             });
         }
 
-        // --- 5. BOTONES DE HILOS ---
         if (threadLinks.length > 0) {
             const threadContainer = div.createDiv({ cls: 'cornell-thread-container' });
-            
             threadLinks.forEach(linkTarget => {
                 const btn = threadContainer.createEl('button', { cls: 'cornell-thread-btn', title: `Follow thread: ${linkTarget}` });
                 btn.innerHTML = '🔗'; 
-                
                 btn.onclick = (e) => {
                     e.preventDefault(); e.stopPropagation(); 
                     this.app.workspace.openLinkText(linkTarget, this.sourcePath, true); 
                 };
-
                 btn.onmouseover = (event) => {
                     this.app.workspace.trigger('hover-link', {
                         event: event, source: 'cornell-marginalia', hoverParent: threadContainer,
@@ -139,7 +125,7 @@ toDOM(view: EditorView): HTMLElement {
     ignoreEvent() { return false; } 
 }
 
-/// --- EXTENSIÓN DE VISTA ---
+// --- EXTENSIÓN DE VISTA ---
 const createCornellExtension = (app: App, settings: CornellSettings, getActiveRecallMode: () => boolean) => ViewPlugin.fromClass(class {
     decorations: DecorationSet;
 
@@ -153,7 +139,7 @@ const createCornellExtension = (app: App, settings: CornellSettings, getActiveRe
         }
     }
 
-buildDecorations(view: EditorView) {
+    buildDecorations(view: EditorView) {
         const builder = new RangeSetBuilder<Decoration>();
         const file = app.workspace.getActiveFile();
         
@@ -167,7 +153,6 @@ buildDecorations(view: EditorView) {
         const { state } = view;
         const cursorRanges = state.selection.ranges;
 
-        // 🧠 NUEVO: Array para guardar las decoraciones y ordenarlas espacialmente
         interface DecData { from: number; to: number; dec: Decoration; type: number; }
         const decorationsData: DecData[] = [];
 
@@ -199,7 +184,6 @@ buildDecorations(view: EditorView) {
 
                 if (isCursorInside) continue;
 
-                // --- 1. LÓGICA DE FLASHCARDS (Tipo 0) ---
                 if (noteContent.trim().endsWith(";;")) {
                     decorationsData.push({
                         from: line.from, to: line.from, type: 0,
@@ -220,53 +204,90 @@ buildDecorations(view: EditorView) {
 
                 if (finalNoteText.length === 0) continue;
 
-                // --- 2. EL TELETRANSPORTADOR (Tipo 1: Widget al inicio) ---
                 decorationsData.push({
-                    from: line.from, // <- MAGIA: Lo inyectamos al principio de la línea
+                    from: line.from, 
                     to: line.from, 
                     type: 1,
                     dec: Decoration.widget({
                         widget: new MarginNoteWidget(finalNoteText, app, matchedColor, file?.path || "", direction),
-                        side: -1 // Lo empuja antes del primer carácter
+                        side: -1 
                     })
                 });
 
-// --- 3. EL BORRADOR (Tipo 2: Pintar de invisible en lugar de reemplazar) ---
                 decorationsData.push({
                     from: matchStart, 
                     to: matchEnd, 
                     type: 2,
-                    dec: Decoration.mark({ class: "cornell-hide-raw" }) // Usamos mark para no pelear con Obsidian
+                    dec: Decoration.mark({ class: "cornell-hide-raw" })
                 });
             }
         }
 
-        // 🧠 Ordenamiento estricto necesario para que el motor CodeMirror 6 no colapse
         decorationsData.sort((a, b) => {
             if (a.from !== b.from) return a.from - b.from;
-            return a.type - b.type; // Prioridad: Line -> Widget -> Replace
+            return a.type - b.type; 
         });
 
-        // Aplicamos al constructor final
         decorationsData.forEach(d => builder.add(d.from, d.to, d.dec));
-
         return builder.finish();
     }
 }, {
     decorations: v => v.decorations
 });
 
-// --- CONSTANTE DE LA VISTA ---
 export const CORNELL_VIEW_TYPE = "cornell-marginalia-view";
 
-// --- VISTA LATERAL (SIDEBAR EXPLORER) ACTUALIZADA 🧵 ---
-// --- VISTA LATERAL (SIDEBAR EXPLORER) CON ÁRBOLES DE HILOS 🌳🧵 ---
-// --- VISTA LATERAL (EXPLORER) CON BUSCADOR INTELIGENTE Y CACHÉ 🔍🧠 ---
-// --- VISTA LATERAL (EXPLORER) CON BUSCADOR INTELIGENTE, DRAG & DROP Y DEDUPLICACIÓN 🔍🧠 ---
-// --- VISTA LATERAL (EXPLORER) CON BUSCADOR INTELIGENTE, DRAG & DROP MULTI-COSTURA Y DEDUPLICACIÓN 🔍🧠 ---
+// --- MODAL DE ADVERTENCIA NATIVO (Anti-Congelamientos) ---
+class ConfirmStitchModal extends Modal {
+    message: string;
+    onConfirm: () => void;
+
+    constructor(app: App, message: string, onConfirm: () => void) {
+        super(app);
+        this.message = message;
+        this.onConfirm = onConfirm;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        
+        contentEl.createEl("h2", { text: "⚠️ Multi-Stitch Warning" });
+        
+        const p = contentEl.createEl("p", { text: this.message });
+        p.style.whiteSpace = "pre-wrap"; // Para que respete los saltos de línea
+
+        const btnContainer = contentEl.createDiv({ cls: "modal-button-container" });
+        btnContainer.style.display = "flex";
+        btnContainer.style.justifyContent = "flex-end";
+        btnContainer.style.gap = "10px";
+        btnContainer.style.marginTop = "20px";
+
+        const cancelBtn = btnContainer.createEl("button", { text: "Cancel" });
+        cancelBtn.onclick = () => {
+            this.close();
+            new Notice("Stitching cancelled.");
+        };
+
+        const confirmBtn = btnContainer.createEl("button", { text: "Proceed", cls: "mod-cta" });
+        confirmBtn.style.backgroundColor = "var(--interactive-accent)";
+        confirmBtn.style.color = "var(--text-on-accent)";
+        confirmBtn.onclick = () => {
+            this.onConfirm();
+            this.close();
+        };
+    }
+
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
+}
+
+// --- VISTA LATERAL (EXPLORER) ESTÉTICA MINIMALISTA Y BLINDADA ●🧠 ---
 class CornellNotesView extends ItemView {
     plugin: CornellMarginalia;
-    currentTab: 'current' | 'vault' | 'threads' = 'current';
+    currentTab: 'current' | 'vault' | 'threads' | 'pinboard' = 'current';
     
     isStitchingMode: boolean = false;
     sourceStitchItem: MarginaliaItem | null = null;
@@ -275,10 +296,10 @@ class CornellNotesView extends ItemView {
     activeColorFilters: Set<string> = new Set();
     cachedItems: MarginaliaItem[] = []; 
 
-    // 🧠 AHORA ES UN ARRAY: Puede guardar 1 nota o 50 notas al mismo tiempo
     draggedSidebarItems: MarginaliaItem[] | null = null; 
-    
     isGroupedByContent: boolean = false; 
+
+    pinboardItems: MarginaliaItem[] = [];
 
     constructor(leaf: WorkspaceLeaf, plugin: CornellMarginalia) {
         super(leaf);
@@ -305,22 +326,23 @@ class CornellNotesView extends ItemView {
         
         const tabCurrent = controlsDiv.createEl("button", { text: "Current", cls: this.currentTab === 'current' ? 'cornell-tab-active' : '' });
         const tabVault = controlsDiv.createEl("button", { text: "Vault", cls: this.currentTab === 'vault' ? 'cornell-tab-active' : '' });
-        const tabThreads = controlsDiv.createEl("button", { text: "🧵 Threads", cls: this.currentTab === 'threads' ? 'cornell-tab-active' : '' });
+        const tabThreads = controlsDiv.createEl("button", { text: "⌇ Threads", cls: this.currentTab === 'threads' ? 'cornell-tab-active' : '' });
+        const tabPinboard = controlsDiv.createEl("button", { text: "● Board", cls: this.currentTab === 'pinboard' ? 'cornell-tab-active' : '', title: "Your Pinboard" });
         
         const actionControlsDiv = container.createDiv({ cls: 'cornell-sidebar-controls' });
-        const btnStitch = actionControlsDiv.createEl("button", { text: "🔗 Stitch", title: "Connect two notes" });
+        const btnStitch = actionControlsDiv.createEl("button", { text: "⛓︎ Stitch", title: "Connect two notes" });
         
         const btnGroup = actionControlsDiv.createEl("button", { 
-            text: "🗂️ Group", 
+            text: "🗁 Group", 
             title: "Group identical notes", 
             cls: this.isGroupedByContent ? 'cornell-tab-active' : '' 
         });
         
-        const btnRefresh = actionControlsDiv.createEl("button", { text: "🔄", title: "Refresh data" });
+        const btnRefresh = actionControlsDiv.createEl("button", { text: "⟳", title: "Refresh data" });
 
         const filterContainer = container.createDiv({ cls: 'cornell-sidebar-filters' });
         
-        const searchInput = filterContainer.createEl('input', { type: 'text', placeholder: '🔍 Search notes...', cls: 'cornell-search-bar' });
+        const searchInput = filterContainer.createEl('input', { type: 'text', placeholder: 'Search notes...', cls: 'cornell-search-bar' });
         searchInput.value = this.searchQuery;
         searchInput.oninput = (e) => {
             this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase();
@@ -351,6 +373,7 @@ class CornellNotesView extends ItemView {
         tabCurrent.onclick = async () => { this.currentTab = 'current'; this.renderUI(); await this.scanNotes(); };
         tabVault.onclick = async () => { this.currentTab = 'vault'; this.renderUI(); await this.scanNotes(); };
         tabThreads.onclick = async () => { this.currentTab = 'threads'; this.renderUI(); await this.scanNotes(); };
+        tabPinboard.onclick = async () => { this.currentTab = 'pinboard'; this.renderUI(); this.applyFiltersAndRender(); };
         
         btnRefresh.onclick = async () => { new Notice("Scanning..."); await this.scanNotes(); };
 
@@ -373,15 +396,20 @@ class CornellNotesView extends ItemView {
         if (!this.isStitchingMode) { banner.style.display = 'none'; return; }
         banner.style.display = 'block';
         if (!this.sourceStitchItem) {
-            banner.innerText = "🔗 Step 1: Click the ORIGIN note...";
+            banner.innerText = "⛓︎ Step 1: Click the ORIGIN note...";
             banner.style.backgroundColor = "var(--interactive-accent)";
         } else {
-            banner.innerText = "🔗 Step 2: Click the DESTINATION note...";
+            banner.innerText = "⛓︎ Step 2: Click the DESTINATION note...";
             banner.style.backgroundColor = "var(--color-green)";
         }
     }
 
     async scanNotes() {
+        if (this.currentTab === 'pinboard') {
+            this.applyFiltersAndRender();
+            return;
+        }
+
         const contentDiv = this.containerEl.querySelector('.cornell-sidebar-content') as HTMLElement;
         if (!contentDiv) return;
         contentDiv.empty();
@@ -413,15 +441,20 @@ class CornellNotesView extends ItemView {
                     let noteContent = match[1].trim();
                     if (noteContent.endsWith(';;')) noteContent = noteContent.slice(0, -2).trim();
 
-                    const linkRegex = /\[\[(.*?)\]\]/g;
+                    // 🧠 TEXTO CRUDO: Necesario para que el Stitching no corrompa los enlaces
+                    const rawTextForStitching = noteContent;
+
+                    // 🛡️ PURGAR IMÁGENES
+                    const imgRegex = /img:\s*\[\[(.*?)\]\]/gi;
+                    const hasImage = imgRegex.test(noteContent);
+                    let cleanText = noteContent.replace(imgRegex, '').trim();
+
+                    // 🛡️ CAZADOR DE ENLACES (Sin loops infinitos)
+                    const linkRegex = /(?<!!)\[\[(.*?)\]\]/g;
                     const outgoingLinks: string[] = [];
-                    let cleanText = noteContent;
-                    let matchLink;
-                    
-                    while ((matchLink = linkRegex.exec(noteContent)) !== null) {
-                        outgoingLinks.push(matchLink[1]);
-                        cleanText = cleanText.replace(matchLink[0], '').trim();
-                    }
+                    const linkMatches = Array.from(cleanText.matchAll(linkRegex));
+                    linkMatches.forEach(m => outgoingLinks.push(m[1]));
+                    cleanText = cleanText.replace(linkRegex, '').trim();
 
                     let matchedColor = defaultColor;
                     for (const tag of this.plugin.settings.tags) {
@@ -432,13 +465,20 @@ class CornellNotesView extends ItemView {
                         }
                     }
 
-                    if (cleanText.length === 0) continue;
+                    if (cleanText.length === 0) {
+                        if (hasImage) {
+                            cleanText = "🖼️ [Image]";
+                        } else {
+                            continue;
+                        }
+                    }
 
                     const blockIdMatch = line.match(/\^([a-zA-Z0-9]+)\s*$/);
                     const existingBlockId = blockIdMatch ? blockIdMatch[1] : null;
 
                     allItemsFlat.push({
                         text: cleanText,
+                        rawText: rawTextForStitching,
                         color: matchedColor,
                         file: file,
                         line: i,
@@ -455,6 +495,11 @@ class CornellNotesView extends ItemView {
     applyFiltersAndRender() {
         const contentDiv = this.containerEl.querySelector('.cornell-sidebar-content') as HTMLElement;
         if (!contentDiv) return;
+
+        if (this.currentTab === 'pinboard') {
+            this.renderPinboardTab(contentDiv);
+            return;
+        }
 
         const isFilterActive = this.searchQuery.length > 0 || this.activeColorFilters.size > 0;
 
@@ -505,6 +550,152 @@ class CornellNotesView extends ItemView {
         }
     }
 
+    renderPinboardTab(container: HTMLElement) {
+        container.empty();
+
+        if (this.pinboardItems.length === 0) {
+            container.createEl('p', { text: 'Your Pinboard is empty. Hover over any note and click the ○ icon to pin it here.', cls: 'cornell-sidebar-empty' });
+            return;
+        }
+
+        const exportBtn = container.createEl('button', { text: 'Export to Note', title: "Compile these notes into a new file" });
+        exportBtn.style.width = '100%';
+        exportBtn.style.marginBottom = '15px';
+        exportBtn.style.backgroundColor = 'var(--interactive-accent)';
+        exportBtn.style.color = 'var(--text-on-accent)';
+        exportBtn.style.fontWeight = 'bold';
+        exportBtn.style.borderRadius = '6px';
+        exportBtn.style.padding = '8px';
+        exportBtn.style.border = 'none';
+        exportBtn.style.cursor = 'pointer';
+
+        // 🧠 1. INPUT PARA TÍTULOS 
+        const titleRow = container.createDiv();
+        titleRow.style.display = 'flex';
+        titleRow.style.gap = '5px';
+        titleRow.style.marginBottom = '15px';
+
+        const titleInput = titleRow.createEl('input', { type: 'text', placeholder: 'Add title (e.g., ## My amazing title)' });
+        titleInput.style.flexGrow = '1';
+        titleInput.style.backgroundColor = 'var(--background-modifier-form-field)';
+        titleInput.style.border = '1px solid var(--background-modifier-border)';
+
+        const addTitleBtn = titleRow.createEl('button', { text: '✚' });
+        addTitleBtn.onclick = () => {
+            const val = titleInput.value.trim();
+            if (val) {
+                // Truco: Guardamos el título como si fuera una marginalia fantasma
+                this.pinboardItems.push({ 
+                    text: val, rawText: val, color: 'transparent', 
+                    file: null as any, line: -1, blockId: null, outgoingLinks: [], isTitle: true 
+                });
+                this.applyFiltersAndRender(); // Recarga la vista
+            }
+        };
+
+        exportBtn.onclick = () => this.exportPinboard();
+
+        // 🧠 2. MOTOR DE RENDERIZADO Y REORDENAMIENTO
+        let draggedIndex: number | null = null;
+        const listContainer = container.createDiv();
+
+        this.pinboardItems.forEach((item, index) => {
+            // Creamos un wrapper arrastrable para cada elemento
+            let itemWrapper = listContainer.createDiv();
+            itemWrapper.setAttr('draggable', 'true');
+            itemWrapper.style.cursor = 'grab';
+            itemWrapper.style.marginBottom = '5px';
+
+            if (item.isTitle) {
+                // --- DIBUJAR TÍTULO ---
+                itemWrapper.style.padding = '10px 5px';
+                itemWrapper.style.marginTop = '15px';
+                itemWrapper.style.borderBottom = '2px solid var(--interactive-accent)';
+                itemWrapper.style.color = 'var(--text-accent)';
+                itemWrapper.style.fontWeight = 'bold';
+                itemWrapper.style.display = 'flex';
+                itemWrapper.style.justifyContent = 'space-between';
+
+                const match = item.text.match(/^(#+)\s(.*)/);
+                itemWrapper.style.fontSize = match ? (match[1].length === 1 ? '1.4em' : '1.25em') : '1.1em';
+                
+                itemWrapper.createSpan({ text: match ? match[2] : item.text });
+                
+                const delBtn = itemWrapper.createSpan({ text: '×', title: 'Borrar título' });
+                delBtn.style.cursor = 'pointer';
+                delBtn.onclick = () => { this.pinboardItems.splice(index, 1); this.applyFiltersAndRender(); };
+            } else {
+                // --- DIBUJAR NOTA NORMAL ---
+                const marginaliaDOM = this.createItemDiv(item, itemWrapper, true, index);
+                // Apagamos el drag de costura para no interferir con el drag de reordenamiento
+                marginaliaDOM.setAttr('draggable', 'false'); 
+            }
+
+            // --- LÓGICA DE DRAG & DROP INTERNO ---
+            itemWrapper.addEventListener('dragstart', (e) => { draggedIndex = index; itemWrapper.style.opacity = '0.4'; e.stopPropagation(); });
+            itemWrapper.addEventListener('dragover', (e) => { e.preventDefault(); itemWrapper.style.borderTop = '3px solid var(--interactive-accent)'; });
+            itemWrapper.addEventListener('dragleave', () => { itemWrapper.style.borderTop = ''; });
+            itemWrapper.addEventListener('drop', (e) => {
+                e.preventDefault(); e.stopPropagation(); itemWrapper.style.borderTop = '';
+                if (draggedIndex !== null && draggedIndex !== index) {
+                    const draggedItem = this.pinboardItems.splice(draggedIndex, 1)[0];
+                    this.pinboardItems.splice(index, 0, draggedItem);
+                    this.applyFiltersAndRender();
+                }
+            });
+            itemWrapper.addEventListener('dragend', () => { itemWrapper.style.opacity = '1'; draggedIndex = null; });
+        });
+    }
+
+    async exportPinboard() {
+        if (this.pinboardItems.length === 0) return;
+        // @ts-ignore
+        const dateStr = window.moment().format('YYYY-MM-DD_HH-mm-ss');
+        const fileName = `Pinboard_${dateStr}.md`;
+        // @ts-ignore
+        let content = `# ● Pinboard Session\n*Exported on: ${window.moment().format('YYYY-MM-DD HH:mm')}*\n\n---\n\n`;
+
+        for (const item of this.pinboardItems) {
+            // 🧠 3. SI ES UN TÍTULO, SE IMPRIME DIRECTO Y SALTAMOS A LA SIGUIENTE NOTA
+            if (item.isTitle) {
+                const text = item.text.startsWith('#') ? item.text : `## ${item.text}`;
+                content += `${text}\n\n`;
+                continue; 
+            }
+            let targetId = item.blockId;
+            if (!targetId) {
+                targetId = Math.random().toString(36).substring(2, 8);
+                item.blockId = targetId;
+                await this.injectBackgroundBlockId(item.file, item.line, targetId);
+            }
+
+            const fileContent = await this.plugin.app.vault.cachedRead(item.file);
+            const lines = fileContent.split('\n');
+            let contextText = lines[item.line] || '';
+            contextText = contextText.replace(/%%[><](.*?)%%/g, '').trim();
+            
+            if (contextText.length > 0 && !contextText.includes(`^${targetId}`)) {
+                contextText += ` ^${targetId}`;
+            }
+
+            content += `Margin Note: ${item.text}\n\n`;
+            if (contextText.length > 0) {
+                content += `${contextText}\n\n`;
+            }
+            content += `From: [[${item.file.basename}#^${targetId}|${item.file.basename}]]\n\n---\n\n`;
+        }
+
+        try {
+            const newFile = await this.plugin.app.vault.create(fileName, content);
+            await this.plugin.app.workspace.getLeaf(true).openFile(newFile);
+            new Notice('Pinboard compiled successfully!');
+            this.pinboardItems = [];
+            this.applyFiltersAndRender();
+        } catch (error) {
+            new Notice('Error creating Pinboard file. Check console.');
+        }
+    }
+
     renderGroupedByContent(groupedResults: Record<string, MarginaliaItem[]>, container: HTMLElement) {
         container.empty();
         let totalFound = 0;
@@ -520,23 +711,70 @@ class CornellNotesView extends ItemView {
 
             const groupParent = container.createDiv({ cls: 'cornell-thread-parent' });
             groupParent.style.position = 'relative';
-
             const representativeItem = items[0]; 
 
             const headerDiv = groupParent.createDiv({ cls: 'cornell-sidebar-item' });
             headerDiv.style.borderLeftColor = representativeItem.color;
-            headerDiv.createDiv({ cls: 'cornell-sidebar-item-text', text: representativeItem.text });
-            headerDiv.createDiv({ cls: 'cornell-sidebar-item-meta', text: `🗂️ ${items.length} occurrences` });
 
-            // ======================================================
-            // 🎯 NUEVO: MOTOR D&D PARA EL GRUPO COMPLETO (LA CARPETA)
-            // ======================================================
-            headerDiv.setAttr('draggable', 'true');
+            const textRow = headerDiv.createDiv({ cls: 'cornell-sidebar-item-text' });
+            textRow.style.display = 'flex';
+            textRow.style.justifyContent = 'space-between';
+            textRow.style.alignItems = 'flex-start';
+
+            const textSpan = textRow.createSpan({ text: representativeItem.text });
+            textSpan.style.flexGrow = '1';
+
+            const allPinned = items.every(item => this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path));
             
+            const groupPinBtn = textRow.createEl('span', { 
+                text: allPinned ? '●' : '○', 
+                title: allPinned ? 'Unpin Group' : 'Pin Group to Board' 
+            });
+            groupPinBtn.style.cursor = 'pointer';
+            groupPinBtn.style.marginLeft = '10px';
+            groupPinBtn.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+            groupPinBtn.style.opacity = allPinned ? '1' : '0';
+
+            headerDiv.addEventListener('mouseenter', () => {
+                const currentlyAllPinned = items.every(item => this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path));
+                if (!currentlyAllPinned) groupPinBtn.style.opacity = '0.5';
+            });
+
+            headerDiv.addEventListener('mouseleave', () => {
+                const currentlyAllPinned = items.every(item => this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path));
+                if (!currentlyAllPinned) groupPinBtn.style.opacity = '0';
+            });
+
+            groupPinBtn.onmouseenter = () => { groupPinBtn.style.opacity = '1'; groupPinBtn.style.transform = 'scale(1.2)'; };
+            groupPinBtn.onmouseleave = () => { 
+                groupPinBtn.style.transform = 'scale(1)'; 
+                const currentlyAllPinned = items.every(item => this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path));
+                if (!currentlyAllPinned) groupPinBtn.style.opacity = '0.5';
+            };
+
+            groupPinBtn.onclick = (e) => {
+                e.stopPropagation(); 
+                const currentlyAllPinned = items.every(item => this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path));
+                if (currentlyAllPinned) {
+                    this.pinboardItems = this.pinboardItems.filter(p => !items.some(i => i.rawText === p.rawText && i.file.path === p.file.path));
+                    groupPinBtn.innerText = '○';
+                    groupPinBtn.style.opacity = '0.5'; 
+                } else {
+                    items.forEach(item => {
+                        const alreadyPinned = this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path);
+                        if (!alreadyPinned) this.pinboardItems.push(item);
+                    });
+                    groupPinBtn.innerText = '●';
+                    groupPinBtn.style.opacity = '1';
+                }
+            };
+
+            headerDiv.createDiv({ cls: 'cornell-sidebar-item-meta', text: `🗁 ${items.length} occurrences` });
+
+            headerDiv.setAttr('draggable', 'true');
             headerDiv.addEventListener('dragstart', (event: DragEvent) => {
                 if (!event.dataTransfer) return;
                 event.dataTransfer.effectAllowed = 'copy'; 
-                
                 let targetId = representativeItem.blockId;
                 if (!targetId) {
                     targetId = Math.random().toString(36).substring(2, 8);
@@ -545,8 +783,7 @@ class CornellNotesView extends ItemView {
                 }
                 const dragPayload = `[[${representativeItem.file.basename}#^${targetId}|Group: ${representativeItem.text}]]`;
                 event.dataTransfer.setData('text/plain', dragPayload);
-
-                this.draggedSidebarItems = items; // ENVIAMOS TODOS LOS HIJOS
+                this.draggedSidebarItems = items; 
             });
 
             headerDiv.addEventListener('dragend', () => {
@@ -557,9 +794,7 @@ class CornellNotesView extends ItemView {
             headerDiv.addEventListener('dragenter', (e: DragEvent) => {
                 e.preventDefault(); 
                 const isSelf = this.draggedSidebarItems && this.draggedSidebarItems.some(i => items.includes(i));
-                if (this.draggedSidebarItems && !isSelf) {
-                    headerDiv.addClass('cornell-drop-target');
-                }
+                if (this.draggedSidebarItems && !isSelf) headerDiv.addClass('cornell-drop-target');
             });
 
             headerDiv.addEventListener('dragover', (e: DragEvent) => {
@@ -567,34 +802,26 @@ class CornellNotesView extends ItemView {
                 if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; 
             });
 
-            headerDiv.addEventListener('dragleave', () => {
-                headerDiv.removeClass('cornell-drop-target'); 
-            });
+            headerDiv.addEventListener('dragleave', () => { headerDiv.removeClass('cornell-drop-target'); });
 
             headerDiv.addEventListener('drop', async (e: DragEvent) => {
-                e.preventDefault();
-                e.stopPropagation(); 
+                e.preventDefault(); e.stopPropagation(); 
                 headerDiv.removeClass('cornell-drop-target');
-
                 const isSelf = this.draggedSidebarItems && this.draggedSidebarItems.some(i => items.includes(i));
                 if (this.draggedSidebarItems && !isSelf) {
-                    // El Grupo es el Padre (Source), Las notas arrastradas son los Hijos (Targets)
                     await this.executeMassStitch(items, this.draggedSidebarItems);
                     this.draggedSidebarItems = null;
                 }
             });
-            // ======================================================
 
             const childrenContainer = groupParent.createDiv({ cls: 'cornell-thread-tree is-collapsed' });
-            
             const toggleBtn = headerDiv.createDiv({ cls: 'cornell-collapse-toggle is-collapsed' });
             toggleBtn.innerHTML = '▼';
             headerDiv.prepend(toggleBtn);
 
             toggleBtn.onclick = (e) => {
                 e.stopPropagation();
-                const isCollapsed = childrenContainer.hasClass('is-collapsed');
-                if (isCollapsed) {
+                if (childrenContainer.hasClass('is-collapsed')) {
                     childrenContainer.removeClass('is-collapsed');
                     toggleBtn.removeClass('is-collapsed');
                 } else {
@@ -605,7 +832,7 @@ class CornellNotesView extends ItemView {
 
             items.forEach(item => {
                 const childDiv = this.createItemDiv(item, childrenContainer);
-                const textNode = childDiv.querySelector('.cornell-sidebar-item-text') as HTMLElement;
+                const textNode = childDiv.querySelector('.cornell-sidebar-item-text > span:first-child') as HTMLElement;
                 if (textNode) textNode.style.display = 'none'; 
                 
                 const metaNode = childDiv.querySelector('.cornell-sidebar-item-meta') as HTMLElement;
@@ -669,8 +896,7 @@ class CornellNotesView extends ItemView {
 
             toggleBtn.onclick = (e) => {
                 e.stopPropagation(); 
-                const isCollapsed = childrenContainer.hasClass('is-collapsed');
-                if (isCollapsed) {
+                if (childrenContainer.hasClass('is-collapsed')) {
                     childrenContainer.removeClass('is-collapsed');
                     toggleBtn.removeClass('is-collapsed');
                 } else {
@@ -717,11 +943,63 @@ class CornellNotesView extends ItemView {
         if (totalFound === 0) container.createEl('p', { text: 'No notes match your search.', cls: 'cornell-sidebar-empty' });
     }
 
-    createItemDiv(item: MarginaliaItem, parentContainer: HTMLElement): HTMLElement {
+    createItemDiv(item: MarginaliaItem, parentContainer: HTMLElement, isPinboardView: boolean = false, pinIndex: number = -1): HTMLElement {
         const itemDiv = parentContainer.createDiv({ cls: 'cornell-sidebar-item' });
         itemDiv.style.borderLeftColor = item.color;
 
-        itemDiv.createDiv({ cls: 'cornell-sidebar-item-text', text: item.text });
+        const textRow = itemDiv.createDiv({ cls: 'cornell-sidebar-item-text' });
+        textRow.style.display = 'flex';
+        textRow.style.justifyContent = 'space-between';
+        textRow.style.alignItems = 'flex-start';
+
+        const textSpan = textRow.createSpan({ text: item.text });
+        textSpan.style.flexGrow = '1';
+
+        const isAlreadyPinned = this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path);
+        let iconText = isPinboardView ? '×' : (isAlreadyPinned ? '●' : '○');
+        
+        const pinBtn = textRow.createEl('span', { text: iconText });
+        pinBtn.style.cursor = 'pointer';
+        pinBtn.style.marginLeft = '10px';
+        pinBtn.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+        pinBtn.style.opacity = (isPinboardView || isAlreadyPinned) ? '1' : '0';
+
+        itemDiv.addEventListener('mouseenter', () => {
+            const currentPinned = this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path);
+            if (!isPinboardView && !currentPinned) pinBtn.style.opacity = '0.5';
+        });
+
+        itemDiv.addEventListener('mouseleave', () => {
+            const currentPinned = this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path);
+            if (!isPinboardView && !currentPinned) pinBtn.style.opacity = '0';
+        });
+
+        pinBtn.onmouseenter = () => { pinBtn.style.opacity = '1'; pinBtn.style.transform = 'scale(1.2)'; };
+        pinBtn.onmouseleave = () => { 
+            pinBtn.style.transform = 'scale(1)'; 
+            const currentPinned = this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path);
+            if (!isPinboardView && !currentPinned) pinBtn.style.opacity = '0.5';
+        };
+
+        pinBtn.onclick = (e) => {
+            e.stopPropagation(); 
+            if (isPinboardView) {
+                this.pinboardItems.splice(pinIndex, 1);
+                this.applyFiltersAndRender();
+            } else {
+                const currentPinned = this.pinboardItems.some(p => p.rawText === item.rawText && p.file.path === item.file.path);
+                if (currentPinned) {
+                    this.pinboardItems = this.pinboardItems.filter(p => !(p.rawText === item.rawText && p.file.path === item.file.path));
+                    pinBtn.innerText = '○';
+                    pinBtn.style.opacity = '0.5'; 
+                } else {
+                    this.pinboardItems.push(item);
+                    pinBtn.innerText = '●';
+                    pinBtn.style.opacity = '1';
+                }
+            }
+        };
+
         itemDiv.createDiv({ cls: 'cornell-sidebar-item-meta', text: `${item.file.basename} (L${item.line + 1})` });
 
         itemDiv.onclick = async () => {
@@ -746,33 +1024,35 @@ class CornellNotesView extends ItemView {
             await leaf.openFile(item.file, { eState: { line: item.line } });
         };
 
-        // ======================================================
-        // 👀 NUEVO: MOTOR DE VISIÓN DE RAYOS X (HOVER)
-        // ======================================================
+        // 🛡️ MOTOR DE VISIÓN DE RAYOS X (Blindado Anti-Zombis)
         let hoverTimeout: NodeJS.Timeout | null = null;
         let tooltipEl: HTMLElement | null = null;
+        let isHovering = false; 
 
         const removeTooltip = () => {
+            isHovering = false; 
             if (hoverTimeout) clearTimeout(hoverTimeout);
             if (tooltipEl) {
                 tooltipEl.remove();
                 tooltipEl = null;
             }
+            document.querySelectorAll('.cornell-hover-tooltip').forEach(el => el.remove());
         };
 
         itemDiv.addEventListener('mouseenter', (e: MouseEvent) => {
-            // Esperamos 600ms para asegurar que el usuario quiere leerlo y no solo está pasando el ratón
+            isHovering = true;
             hoverTimeout = setTimeout(async () => {
+                if (!isHovering) return; 
                 const content = await this.plugin.app.vault.cachedRead(item.file);
+                if (!isHovering) return; 
+                if (!document.body.contains(itemDiv)) return;
+
                 const lines = content.split('\n');
-                
-                // Extraemos la línea anterior, la actual y la siguiente para dar contexto
                 const startLine = Math.max(0, item.line - 1);
                 const endLine = Math.min(lines.length - 1, item.line + 1);
                 
                 let contextText = '';
                 for (let i = startLine; i <= endLine; i++) {
-                    // Limpiamos la marginalia del texto original para que la lectura sea pura
                     let cleanLine = lines[i].replace(/%%[><](.*?)%%/g, '').trim();
                     if (cleanLine) {
                         if (i === item.line) {
@@ -785,6 +1065,8 @@ class CornellNotesView extends ItemView {
 
                 if (!contextText) contextText = "<div class='cornell-hover-text-line'><i>No text context available.</i></div>";
 
+                document.querySelectorAll('.cornell-hover-tooltip').forEach(el => el.remove());
+
                 tooltipEl = document.createElement('div');
                 tooltipEl.className = 'cornell-hover-tooltip';
                 
@@ -796,33 +1078,24 @@ class CornellNotesView extends ItemView {
 
                 document.body.appendChild(tooltipEl);
 
-                // Posicionamiento inteligente (Aparece a la izquierda de la barra lateral)
                 const rect = itemDiv.getBoundingClientRect();
                 let leftPos = rect.left - 340; 
-                // Si tienes la barra a la izquierda y no cabe, lo mandamos a la derecha
                 if (leftPos < 10) leftPos = rect.right + 20; 
                 
                 tooltipEl.style.left = `${leftPos}px`;
-                // Evitamos que se salga por abajo de la pantalla
                 tooltipEl.style.top = `${Math.min(rect.top, window.innerHeight - 150)}px`;
                 
                 requestAnimationFrame(() => {
                     if (tooltipEl) tooltipEl.addClass('is-visible');
                 });
-
             }, 600); 
         });
 
         itemDiv.addEventListener('mouseleave', removeTooltip);
 
-        // ======================================================
-        // 🎯 MOTOR DRAG & DROP
-        // ======================================================
         itemDiv.setAttr('draggable', 'true');
-        
         itemDiv.addEventListener('dragstart', (event: DragEvent) => {
-            removeTooltip(); // Matamos el tooltip si empiezas a arrastrar
-            
+            removeTooltip(); 
             if (!event.dataTransfer) return;
             event.dataTransfer.effectAllowed = 'copy'; 
             
@@ -834,7 +1107,6 @@ class CornellNotesView extends ItemView {
             }
             const dragPayload = `[[${item.file.basename}#^${targetId}|${item.text}]]`;
             event.dataTransfer.setData('text/plain', dragPayload);
-
             this.draggedSidebarItems = [item]; 
         });
 
@@ -873,54 +1145,51 @@ class CornellNotesView extends ItemView {
         return itemDiv;
     }
 
-    // ======================================================
-    // 🧠 NUEVO MOTOR CENTRAL DE MULTI-COSTURA (MASS STITCHING)
-    // ======================================================
-    async executeMassStitch(sources: MarginaliaItem[], targets: MarginaliaItem[]) {
+async executeMassStitch(sources: MarginaliaItem[], targets: MarginaliaItem[]) {
         const totalLinks = sources.length * targets.length;
         
-        // 🛡️ EL SEGURO ANTI-DESASTRES
-        if (totalLinks > 1) {
-            const confirmed = window.confirm(
-                `⚠️ Multi-Stitch Warning\n\nYou are about to create ${totalLinks} connections.\nThis will modify ${sources.length} note(s).\n\nAre you sure you want to proceed?`
-            );
-            if (!confirmed) {
-                new Notice("Stitching cancelled.");
-                return;
-            }
-        }
+        // 🧠 Encapsulamos la lógica de costura pura
+        const processStitching = async () => {
+            new Notice(`Stitching ${totalLinks} thread(s)... ⛓︎`);
 
-        new Notice(`Stitching ${totalLinks} thread(s)... 🔗`);
-
-        // 1. Aseguramos que todas las notas destino tengan un ID
-        for (const target of targets) {
-            if (!target.blockId) {
-                target.blockId = Math.random().toString(36).substring(2, 8);
-                await this.injectBackgroundBlockId(target.file, target.line, target.blockId);
-            }
-        }
-
-        // 2. Inyectamos los enlaces en las notas origen
-        for (const source of sources) {
-            let linksToInject = "";
             for (const target of targets) {
-                if (source === target) continue; // Evita enlaces circulares a la misma nota
-                linksToInject += ` [[${target.file.basename}#^${target.blockId}]]`;
+                if (!target.blockId) {
+                    target.blockId = Math.random().toString(36).substring(2, 8);
+                    await this.injectBackgroundBlockId(target.file, target.line, target.blockId);
+                }
             }
-            
-            if (linksToInject.length > 0) {
-                await this.plugin.app.vault.process(source.file, (data) => {
-                    const lines = data.split('\n');
-                    if (source.line >= 0 && source.line < lines.length) {
-                        lines[source.line] = lines[source.line].replace(source.text, source.text + linksToInject);
-                    }
-                    return lines.join('\n');
-                });
-            }
-        }
 
-        new Notice("¡Hilos conectados con éxito! ✨");
-        await this.scanNotes(); // Refrescamos el explorador para ver la magia
+            for (const source of sources) {
+                let linksToInject = "";
+                for (const target of targets) {
+                    if (source === target) continue; 
+                    linksToInject += ` [[${target.file.basename}#^${target.blockId}]]`;
+                }
+                if (linksToInject.length > 0) {
+                    await this.plugin.app.vault.process(source.file, (data) => {
+                        const lines = data.split('\n');
+                        if (source.line >= 0 && source.line < lines.length) {
+                            lines[source.line] = lines[source.line].replace(source.rawText, source.rawText + linksToInject);
+                        }
+                        return lines.join('\n');
+                    });
+                }
+            }
+
+            new Notice("¡Hilos conectados con éxito! ✨");
+            await this.scanNotes(); 
+        };
+
+        // 🛡️ Si es masivo, abrimos el modal nativo; si es 1 a 1, lo hace directo.
+        if (totalLinks > 1) {
+            new ConfirmStitchModal(
+                this.plugin.app, 
+                `You are about to create ${totalLinks} connections.\nThis will modify ${sources.length} note(s).\n\nAre you sure you want to proceed?`,
+                processStitching
+            ).open();
+        } else {
+            await processStitching();
+        }
     }
 
     async injectBackgroundBlockId(file: TFile, lineIndex: number, newId: string) {
@@ -984,22 +1253,15 @@ export default class CornellMarginalia extends Plugin {
     async onload() {
         await this.loadSettings();
         this.updateStyles(); 
-// Registrar la nueva vista lateral
-        this.registerView(
-            CORNELL_VIEW_TYPE,
-            (leaf) => new CornellNotesView(leaf, this)
-        );
+        this.registerView(CORNELL_VIEW_TYPE, (leaf) => new CornellNotesView(leaf, this));
 
-        // Añadir el comando para abrir el explorador
         this.addCommand({
             id: 'open-cornell-explorer',
             name: 'Open Marginalia Explorer',
-            callback: () => {
-                this.activateView();
-            }
+            callback: () => { this.activateView(); }
         });
-        this.addSettingTab(new CornellSettingTab(this.app, this));
         
+        this.addSettingTab(new CornellSettingTab(this.app, this));
         this.registerEditorExtension(createCornellExtension(this.app, this.settings, () => this.activeRecallMode));
 
         this.ribbonIcon = this.addRibbonIcon('eye', 'Toggle Active Recall Mode', (evt: MouseEvent) => {
@@ -1023,9 +1285,7 @@ export default class CornellMarginalia extends Plugin {
         this.addCommand({
             id: 'generate-flashcards-sr',
             name: 'Flashcards Generation (Spaced Repetition)',
-            editorCallback: (editor: Editor, view: MarkdownView) => {
-                this.generateFlashcards(editor);
-            }
+            editorCallback: (editor: Editor, view: MarkdownView) => { this.generateFlashcards(editor); }
         });
 
         this.addCommand({
@@ -1042,20 +1302,16 @@ export default class CornellMarginalia extends Plugin {
         this.addCommand({
             id: 'prepare-pdf-print',
             name: 'Prepare Marginalia for PDF Print',
-            editorCallback: (editor: Editor) => {
-                this.prepareForPrint(editor);
-            }
+            editorCallback: (editor: Editor) => { this.prepareForPrint(editor); }
         });
 
         this.addCommand({
             id: 'restore-pdf-print',
             name: 'Restore Marginalia after PDF Print',
-            editorCallback: (editor: Editor) => {
-                this.restoreFromPrint(editor);
-            }
+            editorCallback: (editor: Editor) => { this.restoreFromPrint(editor); }
         });
 
-this.registerMarkdownPostProcessor((el, ctx) => {
+        this.registerMarkdownPostProcessor((el, ctx) => {
             if (!this.settings.enableReadingView) return;
             
             const sectionInfo = ctx.getSectionInfo(el);
@@ -1101,21 +1357,21 @@ this.registerMarkdownPostProcessor((el, ctx) => {
                         }
                     }
 
-                    // --- 1. CABALLO DE TROYA (Imágenes) ---
                     let finalRenderText = finalNoteText;
                     const imagesToRender: string[] = [];
                     
-                    const imgMatches = Array.from(finalRenderText.matchAll(/img:\[\[(.*?)\]\]/g));
+                    // 🛡️ VACUNA REGEX LECTURA
+                    const imgRegex = /img:\s*\[\[(.*?)\]\]/gi;
+                    const imgMatches = Array.from(finalRenderText.matchAll(imgRegex));
                     imgMatches.forEach(m => imagesToRender.push(m[1]));
-                    finalRenderText = finalRenderText.replace(/img:\[\[(.*?)\]\]/g, '').trim();
+                    finalRenderText = finalRenderText.replace(imgRegex, '').trim();
 
-                    // --- 2. CAZADOR DE ENLACES MÚLTIPLES ---
                     const threadLinks: string[] = [];
-                    
-                    const linkMatches = Array.from(finalRenderText.matchAll(/(?<!!)\[\[(.*?)\]\]/g));
+                    const linkRegex = /(?<!!)\[\[(.*?)\]\]/g;
+                    const linkMatches = Array.from(finalRenderText.matchAll(linkRegex));
                     linkMatches.forEach(m => threadLinks.push(m[1]));
-                    finalRenderText = finalRenderText.replace(/(?<!!)\[\[(.*?)\]\]/g, '').trim();
-                    // --- 3. CREAR LA NOTA ---
+                    finalRenderText = finalRenderText.replace(linkRegex, '').trim();
+
                     const marginDiv = document.createElement("div");
                     marginDiv.className = "cm-cornell-margin reading-mode-margin"; 
                     
@@ -1155,13 +1411,11 @@ this.registerMarkdownPostProcessor((el, ctx) => {
                         });
                     }
 
-                    // --- 4. LA MAGIA DE LAS CAJAS (Columnas Invisibles) ---
                     currentTarget.classList.add('cornell-reading-container');
                     
                     const isMainLeft = this.settings.alignment === 'left';
                     const isNoteLeft = (isMainLeft && direction === '>') || (!isMainLeft && direction === '<');
 
-                    // Convertimos la nota a Relativa para que se apile SOLA dentro de su columna
                     marginDiv.style.setProperty('position', 'relative', 'important');
                     marginDiv.style.setProperty('width', '100%', 'important');
                     marginDiv.style.setProperty('left', 'auto', 'important');
@@ -1169,7 +1423,6 @@ this.registerMarkdownPostProcessor((el, ctx) => {
                     marginDiv.style.setProperty('margin-top', '0', 'important');
                     marginDiv.style.setProperty('margin-bottom', '12px', 'important');
 
-                    // Buscamos o creamos la columna correspondiente (Izquierda o Derecha)
                     let colClass = isNoteLeft ? 'cornell-col-left' : 'cornell-col-right';
                     let column = Array.from(currentTarget.children).find(c => c.classList.contains(colClass)) as HTMLElement;
                     
@@ -1198,8 +1451,6 @@ this.registerMarkdownPostProcessor((el, ctx) => {
                         currentTarget.classList.add('cornell-flashcard-target');
                     }
                     
-                    // --- 5. EL SENSOR DE ALTURA ---
-                    // Esperamos una fracción de segundo a que la nota se dibuje y medimos la columna
                     setTimeout(() => {
                         const colLeft = Array.from(currentTarget.children).find(c => c.classList.contains('cornell-col-left')) as HTMLElement;
                         const colRight = Array.from(currentTarget.children).find(c => c.classList.contains('cornell-col-right')) as HTMLElement;
@@ -1209,14 +1460,13 @@ this.registerMarkdownPostProcessor((el, ctx) => {
                         if (colRight) maxH = Math.max(maxH, colRight.offsetHeight);
                         
                         if (maxH > 0) {
-                            currentTarget.style.minHeight = `${maxH + 10}px`; // Estiramos el párrafo para proteger las notas
+                            currentTarget.style.minHeight = `${maxH + 10}px`; 
                         }
                     }, 100);
                 }
             });
         });
     }
-
 
     toggleActiveRecall() {
         this.activeRecallMode = !this.activeRecallMode;
@@ -1232,27 +1482,25 @@ this.registerMarkdownPostProcessor((el, ctx) => {
         
         this.app.workspace.updateOptions();
     }
-async activateView() {
+
+    async activateView() {
         const { workspace } = this.app;
         
         let leaf: WorkspaceLeaf | null = null;
         const leaves = workspace.getLeavesOfType(CORNELL_VIEW_TYPE);
 
         if (leaves.length > 0) {
-            // Si ya está abierta, la seleccionamos
             leaf = leaves[0];
         } else {
-            // Si no está abierta, creamos una nueva pestaña a la derecha
             leaf = workspace.getRightLeaf(false);
             if (leaf) {
                 await leaf.setViewState({ type: CORNELL_VIEW_TYPE, active: true });
             }
         }
 
-        // Revelar la pestaña al usuario
         if (leaf) workspace.revealLeaf(leaf);
     }
-    // --- LÓGICA DE FLASHCARDS INTELIGENTE ---
+
     generateFlashcards(editor: Editor) {
         const content = editor.getValue();
         const headerText = "### Flashcards";
@@ -1314,7 +1562,7 @@ async activateView() {
         }
     }
 
-updateStyles() {
+    updateStyles() {
         document.body.style.setProperty('--cornell-width', `${this.settings.marginWidth}%`);
         document.body.style.setProperty('--cornell-font-size', this.settings.fontSize);
         document.body.style.setProperty('--cornell-font-family', this.settings.fontFamily);
@@ -1338,12 +1586,11 @@ updateStyles() {
 
     async loadSettings() { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); }
     async saveSettings() { await this.saveData(this.settings); }
-// --- LÓGICA DE IMPRESIÓN (PDF EXPORT) ULTRA SEGURA ---
+
     async prepareForPrint(editor: Editor) {
         let content = editor.getValue();
         let modified = false;
 
-        // Reemplazo puramente en línea. No movemos el texto de su lugar original.
         const newContent = content.replace(/%%>(.*?)%%/g, (match, noteContent) => {
             modified = true;
             let finalText = noteContent.trim();
@@ -1361,7 +1608,6 @@ updateStyles() {
                 }
             }
 
-            // Guardamos tu texto original codificado para que sea imposible perderlo
             const safeOriginal = encodeURIComponent(match);
             return `<span class="cornell-print-margin" data-original="${safeOriginal}" style="border-right: 3px solid ${matchedColor}; color: ${matchedColor};">${finalText}</span>`;
         });
@@ -1378,7 +1624,6 @@ updateStyles() {
         let content = editor.getValue();
         let modified = false;
 
-        // Buscamos exactamente el span que creamos y devolvemos su contenido original
         const newContent = content.replace(/<span class="cornell-print-margin" data-original="(.*?)".*?<\/span>/gs, (match, safeOriginal) => {
             modified = true;
             return decodeURIComponent(safeOriginal);
