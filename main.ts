@@ -285,6 +285,149 @@ class ConfirmStitchModal extends Modal {
     }
 }
 
+// --- MOTOR DE DIBUJO (TRUE MARGINALIA) 🎨 ---
+class DoodleModal extends Modal {
+    editor: Editor;
+    canvas: HTMLCanvasElement;
+    ctx: CanvasRenderingContext2D;
+    isDrawing: boolean = false;
+
+    constructor(app: App, editor: Editor) {
+        super(app);
+        this.editor = editor;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        this.modalEl.style.width = "80vw"; // Modal ancho para dibujar cómodo
+        this.modalEl.style.maxWidth = "800px";
+
+        contentEl.createEl("h3", { text: "✏️ Marginalia Doodle" });
+
+        // 1. Crear el contenedor y el lienzo
+        const canvasContainer = contentEl.createDiv();
+        canvasContainer.style.border = "2px dashed var(--background-modifier-border)";
+        canvasContainer.style.borderRadius = "8px";
+        canvasContainer.style.backgroundColor = "#ffffff"; // Fondo blanco para que el trazo negro resalte
+        canvasContainer.style.cursor = "crosshair";
+        canvasContainer.style.touchAction = "none"; // Evita que la pantalla táctil haga scroll
+
+        this.canvas = canvasContainer.createEl("canvas");
+        this.canvas.width = 750;
+        this.canvas.height = 400;
+        this.canvas.style.display = "block";
+        
+        this.ctx = this.canvas.getContext("2d")!;
+        // Estilo del trazo (Tinta)
+        this.ctx.lineWidth = 3;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.strokeStyle = "#000000";
+
+        // 2. Lógica de Dibujo (Soporta Ratón y Tableta Gráfica)
+        this.canvas.addEventListener("pointerdown", (e) => {
+            this.isDrawing = true;
+            const rect = this.canvas.getBoundingClientRect();
+            this.ctx.beginPath();
+            this.ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+        });
+
+        this.canvas.addEventListener("pointermove", (e) => {
+            if (!this.isDrawing) return;
+            const rect = this.canvas.getBoundingClientRect();
+            this.ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+            this.ctx.stroke();
+        });
+
+        this.canvas.addEventListener("pointerup", () => { this.isDrawing = false; });
+        this.canvas.addEventListener("pointerout", () => { this.isDrawing = false; });
+
+        // 3. Botonera (Limpiar, Cancelar, Guardar)
+        const btnContainer = contentEl.createDiv();
+        btnContainer.style.display = "flex";
+        btnContainer.style.justifyContent = "space-between";
+        btnContainer.style.marginTop = "15px";
+
+        const clearBtn = btnContainer.createEl("button", { text: "🗑️ Clear" });
+        clearBtn.onclick = () => this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const rightBtns = btnContainer.createDiv();
+        rightBtns.style.display = "flex";
+        rightBtns.style.gap = "10px";
+
+        const cancelBtn = rightBtns.createEl("button", { text: "Cancel" });
+        cancelBtn.onclick = () => this.close();
+
+        const saveBtn = rightBtns.createEl("button", { text: "💾 Save to Margin", cls: "mod-cta" });
+        saveBtn.style.backgroundColor = "var(--interactive-accent)";
+        saveBtn.style.color = "var(--text-on-accent)";
+        saveBtn.onclick = () => this.saveDoodle();
+    }
+
+    async saveDoodle() {
+        // 1. Convertir el dibujo a Base64 (Imagen Web)
+        const dataUrl = this.canvas.toDataURL("image/png");
+        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+        
+        // 2. Convertir Base64 a datos binarios que Obsidian pueda guardar
+        const arrayBuffer = base64ToArrayBuffer(base64Data);
+
+        // @ts-ignore
+        const dateStr = window.moment().format('YYYYMMDD_HHmmss');
+        const fileName = `doodle_${dateStr}.png`;
+        
+        try {
+            // 3. Averiguar dónde guarda Obsidian los adjuntos de forma SEGURA
+            const activeFile = this.app.workspace.getActiveFile();
+            let attachmentPath = fileName;
+            
+            if (activeFile) {
+                try {
+                    // API Oficial y moderna de Obsidian
+                    // @ts-ignore
+                    attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, activeFile.path);
+                } catch (e) {
+                    // Fallback de emergencia: Guardar en la misma carpeta que la nota
+                    const parentPath = activeFile.parent ? activeFile.parent.path : "";
+                    attachmentPath = parentPath === "/" || !parentPath ? fileName : `${parentPath}/${fileName}`;
+                }
+            }
+
+            // 4. Guardar la imagen en el disco duro
+            await this.app.vault.createBinary(attachmentPath, arrayBuffer);
+
+            // 5. Inyectar la marginalia con la imagen en el editor
+            const actualFileName = attachmentPath.split('/').pop(); // Extraer solo el nombre.png
+            const insertion = `%%> img:[[${actualFileName}]] %%`;
+            
+            const cursor = this.editor.getCursor();
+            this.editor.replaceRange(insertion, cursor);
+            
+            new Notice("✏️ Doodle saved!");
+            this.close();
+        } catch (error) {
+            new Notice("Error saving doodle. Check console.");
+            console.error(error);
+        }
+    }
+
+    onClose() {
+        this.contentEl.empty();
+    }
+}
+
+// Utilidad auxiliar para transformar la imagen a binario
+function base64ToArrayBuffer(base64: string) {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
 // --- VISTA LATERAL (EXPLORER) ESTÉTICA MINIMALISTA Y BLINDADA ●🧠 ---
 class CornellNotesView extends ItemView {
     plugin: CornellMarginalia;
@@ -726,7 +869,7 @@ class CornellNotesView extends ItemView {
 // 🌳 NUEVA FUNCIÓN: Exportador al Portapapeles para Mindmaps (Excalidraw)
     async exportMindmap() {
         if (this.pinboardItems.length === 0) {
-            new Notice('Empty Board ');
+            new Notice('El Board está vacío.');
             return;
         }
 
@@ -738,8 +881,8 @@ class CornellNotesView extends ItemView {
                 const text = item.text.startsWith('#') ? item.text : `# ${item.text}`;
                 content += `${text}\n`;
             } else {
-                // Creamos los espacios de sangría según el nivel
-                const indentSpaces = "\t".repeat(item.indentLevel || 0); // Excalidraw prefiere tabulaciones, pero puedes usar "  " si falla
+                // Creamos los espacios de sangría base según el nivel en el corcho
+                const indentSpaces = "\t".repeat(item.indentLevel || 0);
                 
                 let targetId = item.blockId;
                 if (!targetId) {
@@ -748,15 +891,32 @@ class CornellNotesView extends ItemView {
                     await this.injectBackgroundBlockId(item.file, item.line, targetId);
                 }
 
-                // Imprimimos la viñeta con el enlace a la nota original
-                content += `${indentSpaces}- [[${item.file.basename}#^${targetId}|${item.text}]]\n`;
+                // 🧠 DESACOPLAMIENTO DE IMÁGENES PARA EXCALIDRAW
+                const imgRegex = /img:\s*\[\[(.*?)\]\]/i;
+                const match = item.rawText.match(imgRegex);
+                const cleanText = item.rawText.replace(imgRegex, '').trim();
+
+                if (match) {
+                    const imageName = match[1]; // Extraemos solo el nombre (ej. doodle.png|180)
+                    
+                    if (cleanText.length > 0) {
+                        // 1. Tiene texto e imagen: El texto es el padre (con link), la imagen la hija pura
+                        content += `${indentSpaces}- [[${item.file.basename}#^${targetId}|${cleanText}]]\n`;
+                        content += `${indentSpaces}\t- ![[${imageName}]]\n`;
+                    } else {
+                        // 2. 🎯 SOLO IMAGEN: Imprimimos la imagen directamente como nodo, SIN link y SIN texto fantasma
+                        content += `${indentSpaces}- ![[${imageName}]]\n`;
+                    }
+                } else {
+                    // 3. Es solo texto normal
+                    content += `${indentSpaces}- [[${item.file.basename}#^${targetId}|${item.rawText}]]\n`;
+                }
             }
         }
 
         try {
-            // 🧠 LA MAGIA: Inyectar directamente en el portapapeles del sistema operativo
             await navigator.clipboard.writeText(content);
-            new Notice('📋 Mindmap copied to clipboard! Go to Excalidraw and press Alt+V');
+            new Notice('📋 ¡Mindmap copiado! Ve a Excalidraw y presiona Ctrl+V');
         } catch (error) {
             new Notice('Error al copiar al portapapeles. Revisa la consola.');
             console.error(error);
@@ -803,22 +963,31 @@ class CornellNotesView extends ItemView {
                     await this.injectBackgroundBlockId(item.file, item.line, targetId);
                 }
 
-                // 📌 1. NODO MARGINALIA
-                const noteText = `**Marginalia:**\n${item.text}\n\n[[${item.file.basename}#^${targetId}|🔗 Origin]]`;
-                nodes.push({ id: nodeId, type: "text", text: noteText, x: baseX, y: currentY, width: 300, height: 140, color: "4" }); // Color 4 = Verde
+                // 🧠 MAGIA DE IMÁGENES: Rescatamos el texto real y lo convertimos
+                let canvasNoteContent = item.rawText;
+                const hasImage = /img:\s*\[\[(.*?)\]\]/gi.test(canvasNoteContent);
+                
+                // Convertimos img:[[archivo.png]] a ![[archivo.png]] para que Canvas lo dibuje
+                canvasNoteContent = canvasNoteContent.replace(/img:\s*\[\[(.*?)\]\]/gi, '![[$1]]');
 
-                // 🧵 2. CONECTAR CON SU PADRE (Título o Marginalia anterior)
+                // 📌 1. NODO MARGINALIA
+                const noteText = `**Tu Nota:**\n${canvasNoteContent}\n\n[[${item.file.basename}#^${targetId}|🔗 Ir al origen]]`;
+                
+                // Si la nota tiene un doodle, hacemos la tarjeta más alta para que quepa bien
+                const nodeHeight = hasImage ? 320 : 140;
+                
+                nodes.push({ id: nodeId, type: "text", text: noteText, x: baseX, y: currentY, width: 300, height: nodeHeight, color: "4" }); // Color 4 = Verde
+
+                // 🧵 2. CONECTAR CON SU PADRE
                 const parentId = parentAtLevel[indent - 1] || lastTitleId;
                 if (parentId) {
                     edges.push({ id: genId(), fromNode: parentId, fromSide: "right", toNode: nodeId, toSide: "left" });
                 }
                 parentAtLevel[indent] = nodeId;
 
-                // 📚 3. EXTRAER EL TEXTO DEL HOVER (El Párrafo Real)
+                // 📚 3. EXTRAER EL TEXTO DEL HOVER
                 const fileContent = await this.plugin.app.vault.cachedRead(item.file);
                 const lines = fileContent.split('\n');
-                
-                // Leemos la línea exacta, la anterior y la posterior (Como hace tu Rayos X visual)
                 const startLine = Math.max(0, item.line - 1);
                 const endLine = Math.min(lines.length - 1, item.line + 1);
                 
@@ -829,16 +998,15 @@ class CornellNotesView extends ItemView {
                 }
                 contextText = contextText.trim();
 
-                // 📄 4. NODO CONTEXTO (Despliega la rama a la derecha)
+                // 📄 4. NODO CONTEXTO
                 if (contextText) {
                     const contextNodeId = genId();
-                    // Lo dibujamos 400px a la derecha de la marginalia
-                    nodes.push({ id: contextNodeId, type: "text", text: `> ${contextText}`, x: baseX + 400, y: currentY - 20, width: 450, height: 180 });
-                    // Trazamos la flecha
+                    nodes.push({ id: contextNodeId, type: "text", text: `> ${contextText}`, x: baseX + 400, y: currentY - 20, width: 450, height: Math.max(180, nodeHeight) });
                     edges.push({ id: genId(), fromNode: nodeId, fromSide: "right", toNode: contextNodeId, toSide: "left" });
                 }
 
-                currentY += 220; // Bajamos el cursor verticalmente para la siguiente carta
+                // Bajamos el cursor según si pusimos una imagen grande o una nota pequeña
+                currentY += hasImage ? 360 : 220; 
             }
         }
 
@@ -1465,6 +1633,14 @@ export default class CornellMarginalia extends Plugin {
                     const cursor = editor.getCursor();
                     editor.setCursor({ line: cursor.line, ch: cursor.ch - 3 });
                 }
+            }
+        });
+
+        this.addCommand({
+            id: 'open-doodle-canvas',
+            name: 'Draw a Doodle (Margin Image)',
+            editorCallback: (editor: Editor) => {
+                new DoodleModal(this.app, editor).open();
             }
         });
 

@@ -681,6 +681,39 @@ body.cornell-active-recall-on .cornell-flashcard-target .cm-cornell-margin * {
     padding: 0 !important;
 }
 
+/* 🎨 INVERSIÓN INTELIGENTE PARA DOODLES EN MODO OSCURO */
+
+/* Obsidian añade la clase .theme-dark al body cuando activas el modo oscuro.
+   Buscamos cualquier imagen dentro de marginalias cuyo nombre (src) contenga "doodle_". */
+body.theme-dark .cm-cornell-margin img[src*="doodle_"] {
+    /* Convierte los píxeles negros en blancos puros */
+    filter: invert(1); 
+    
+    /* Le bajamos un 10% el brillo para que la tinta blanca no te encandile al leer de noche */
+    opacity: 0.9; 
+    
+    /* Una transición suave por si cambias de tema claro a oscuro con la nota abierta */
+    transition: filter 0.3s ease, opacity 0.3s ease; 
+}
+
+/* 🧼 LIMPIEZA TOTAL DE BORDES PARA DOODLES (Efecto "Tinta en Papel") */
+
+/* Apuntamos a las imágenes 'doodle_' tanto en modo edición (.cm-cornell-margin) como lectura (.reading-mode-margin) */
+.cm-cornell-margin img[src*="doodle_"],
+.reading-mode-margin img[src*="doodle_"] {
+    /* Elimina cualquier línea sólida que ponga el tema */
+    border: none !important; 
+    /* Elimina sombras o resplandores alrededor de la imagen */
+    box-shadow: none !important;
+    /* Asegura que el fondo del contenedor de la imagen sea transparente */
+    background: transparent !important;
+    /* Elimina el "relleno" entre la imagen y el borde invisible */
+    padding: 0 !important;
+    /* Opcional: si algún tema usa 'outline' en lugar de border */
+    outline: none !important;
+}
+
+
 /* ======================================================
    👻 CLASE PARA OCULTAR TEXTO CRUDO EN MODO EDICIÓN
    ====================================================== */
