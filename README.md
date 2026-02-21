@@ -139,6 +139,10 @@ Why limit your connections to main text? You can now stitch your marginalia note
 * **Native & Future-Proof:** Threads use hidden, native Obsidian Block IDs (`[[Note#^id]]`). Your connections will survive file renames and will even show up in your native Obsidian Graph View!
 * **Hover Peeks:** Whenever a note is part of a thread, a `🔗` button appears inside the marginalia. Hover your mouse over this button to instantly preview the connected note in a native popup, without ever leaving your current reading flow.
 
+### 13. **✏️ The Doodle Engine (True Marginalia):**
+* **Native Drawing Canvas:** Trigger the new `Draw a Doodle` command to open a distraction-free floating canvas. Supports both mouse and stylus/drawing tablets.
+* **Auto-Injection:** Clicking "Save to Margin" automatically saves your sketch as a PNG in your vault and injects the image syntax into your active note. 
+
 ### ⚡ Shortcuts & Commands
 
 You don't need to type %%> manually every time or dig through settings! The plugin includes smart commands to speed up your workflow.
