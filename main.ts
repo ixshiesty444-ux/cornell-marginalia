@@ -939,6 +939,8 @@ class CornellNotesView extends ItemView {
     }
 
     applyFiltersAndRender() {
+        // 🧹 CAZAFANTASMAS 1: Destruye cualquier tooltip huérfano antes de redibujar la barra
+        document.querySelectorAll('.cornell-hover-tooltip').forEach(el => el.remove());
         const contentDiv = this.containerEl.querySelector('.cornell-sidebar-content') as HTMLElement;
         if (!contentDiv) return;
 
@@ -1273,7 +1275,7 @@ class CornellNotesView extends ItemView {
                 canvasNoteContent = canvasNoteContent.replace(/img:\s*\[\[(.*?)\]\]/gi, '![[$1]]');
 
                 // 📌 1. NODO MARGINALIA
-                const noteText = `**Tu Nota:**\n${canvasNoteContent}\n\n[[${item.file.basename}#^${targetId}|🔗 Ir al origen]]`;
+                const noteText = `**Marginalia:**\n${canvasNoteContent}\n\n[[${item.file.basename}#^${targetId}|🔗 Origin]]`;
                 
                 // Si la nota tiene un doodle, hacemos la tarjeta más alta para que quepa bien
                 const nodeHeight = hasImage ? 320 : 140;
@@ -1638,6 +1640,8 @@ class CornellNotesView extends ItemView {
 
         pinBtn.onclick = (e) => {
             e.stopPropagation(); 
+            // 🧹 CAZAFANTASMAS 2: Destruye el tooltip instantáneamente al hacer clic
+            document.querySelectorAll('.cornell-hover-tooltip').forEach(el => el.remove());
             if (isPinboardView) {
                 this.pinboardItems.splice(pinIndex, 1);
                 this.applyFiltersAndRender();
