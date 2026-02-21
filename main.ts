@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component, Editor, Notice, MarkdownView, ItemView, WorkspaceLeaf, TFile, Modal } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component, Editor, Notice, MarkdownView, ItemView, WorkspaceLeaf, TFile, Modal, MarkdownFileInfo } from 'obsidian';
 import { RangeSetBuilder } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
@@ -18,6 +18,7 @@ interface CornellSettings {
     tags: CornellTag[];
     enableReadingView: boolean;
     outgoingLinks: string[]; 
+    lastOmniDestination: string;
 }
 
 interface MarginaliaItem {
@@ -45,7 +46,8 @@ const DEFAULT_SETTINGS: CornellSettings = {
         { prefix: 'X-', color: '#ff4d4d' }, 
         { prefix: 'V-', color: '#00cc66' }  
     ],
-    outgoingLinks: []
+    outgoingLinks: [],
+    lastOmniDestination: 'Marginalia Inbox'
 }
 
 // --- WIDGET DE MARGEN ---
@@ -288,8 +290,8 @@ class ConfirmStitchModal extends Modal {
 // --- MOTOR DE DIBUJO (TRUE MARGINALIA) 🎨 ---
 class DoodleModal extends Modal {
     editor: Editor;
-    canvas: HTMLCanvasElement;
-    ctx: CanvasRenderingContext2D;
+    canvas!: HTMLCanvasElement;
+    ctx!: CanvasRenderingContext2D;
     isDrawing: boolean = false;
 
     constructor(app: App, editor: Editor) {
@@ -426,6 +428,306 @@ function base64ToArrayBuffer(base64: string) {
         bytes[i] = binaryString.charCodeAt(i);
     }
     return bytes.buffer;
+}
+
+// --- OMNI-CAPTURE MODAL (Captura rápida de Ideas, Portapapeles y Doodles) ⚡ ---
+// --- OMNI-CAPTURE MODAL (Fast Capture for Ideas, Clipboard & Doodles) ⚡ ---
+// --- OMNI-CAPTURE MODAL (Fast Capture for Ideas, Clipboard & Doodles) ⚡ ---
+class OmniCaptureModal extends Modal {
+    // 🧠 CACHÉ INTELIGENTE (Memoria a corto plazo del Plugin)
+    static lastCapturedContext: string = "";
+    static lastCapturedImageLength: number = 0;
+
+    thoughtInput!: HTMLTextAreaElement;
+    clipboardInput!: HTMLTextAreaElement;
+    destinationInput!: HTMLInputElement;
+    
+    // Elementos del Doodle
+    canvasContainer!: HTMLElement;
+    canvas!: HTMLCanvasElement;
+    ctx!: CanvasRenderingContext2D;
+    isDrawing: boolean = false;
+    hasDoodle: boolean = false;
+    
+    // Elementos de la Imagen del Portapapeles
+    clipboardImagePreview!: HTMLImageElement;
+    clipboardImageData: ArrayBuffer | null = null;
+    clipboardImageExt: string = "png";
+
+    plugin: CornellMarginalia;
+
+    constructor(app: App, plugin: CornellMarginalia) {
+        super(app);
+        this.plugin = plugin;
+    }
+
+    async onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        this.modalEl.style.width = "60vw";
+        this.modalEl.style.maxWidth = "700px";
+
+        contentEl.createEl("h2", { text: "⚡ Omni-Capture" });
+
+        // 1. Destino con Autocompletado
+        const destRow = contentEl.createDiv({ attr: { style: "margin-bottom: 15px; display: flex; gap: 10px; align-items: center;" } });
+        destRow.createSpan({ text: "📥 Destination:", attr: { style: "font-weight: bold;" } });
+        
+        const lastTarget = this.plugin.settings.lastOmniDestination || "Marginalia Inbox";
+        this.destinationInput = destRow.createEl("input", { type: "text", value: lastTarget });
+        this.destinationInput.style.flexGrow = "1";
+
+        const datalist = contentEl.createEl("datalist");
+        datalist.id = "omni-vault-files";
+        this.app.vault.getMarkdownFiles().forEach(f => datalist.createEl("option", { value: f.basename }));
+        this.destinationInput.setAttribute("list", "omni-vault-files");
+
+        // 2. Tu Pensamiento
+        contentEl.createEl("h4", { text: "💡 Your Idea/Thought:", attr: { style: "margin-bottom: 5px;" } });
+        this.thoughtInput = contentEl.createEl("textarea", { placeholder: "e.g., Windows is like fast food, Linux is fresh vegetables..." });
+        this.thoughtInput.style.width = "100%";
+        this.thoughtInput.style.height = "80px";
+        this.thoughtInput.style.marginBottom = "15px";
+
+        // 3. El Portapapeles (Contexto) CON BOTÓN DE LIMPIEZA
+        const contextHeader = contentEl.createDiv({ attr: { style: "display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 5px;" } });
+        contextHeader.createEl("h4", { text: "📄 Context (Clipboard):", attr: { style: "margin: 0;" } });
+        
+        // 🧹 Botón de Limpieza Manual
+        const clearCtxBtn = contextHeader.createEl("span", { text: "🧹 Clear", attr: { style: "cursor: pointer; font-size: 0.85em; color: var(--text-muted);" } });
+        clearCtxBtn.onclick = () => {
+            this.clipboardInput.value = "";
+            this.clipboardImageData = null;
+            this.clipboardImagePreview.style.display = "none";
+            this.clipboardImagePreview.src = "";
+            this.clipboardInput.placeholder = "Context cleared. Type or paste (Ctrl+V) here...";
+        };
+
+        this.clipboardInput = contentEl.createEl("textarea", { placeholder: "Loading clipboard..." });
+        this.clipboardInput.style.width = "100%";
+        this.clipboardInput.style.height = "60px";
+        this.clipboardInput.style.opacity = "0.8";
+        
+        this.clipboardImagePreview = contentEl.createEl("img");
+        this.clipboardImagePreview.style.maxWidth = "100%";
+        this.clipboardImagePreview.style.maxHeight = "200px";
+        this.clipboardImagePreview.style.display = "none";
+        this.clipboardImagePreview.style.marginTop = "10px";
+        this.clipboardImagePreview.style.borderRadius = "8px";
+        this.clipboardImagePreview.style.border = "1px solid var(--background-modifier-border)";
+
+        // 🧠 AUTO-LECTURA INTELIGENTE (Filtra lo viejo)
+        try {
+            const clipboardItems = await navigator.clipboard.read();
+            for (const item of clipboardItems) {
+                if (item.types.includes("text/plain")) {
+                    const blob = await item.getType("text/plain");
+                    const text = await blob.text();
+                    if (text && text !== OmniCaptureModal.lastCapturedContext) {
+                        this.clipboardInput.value = text;
+                    } else if (text) {
+                        this.clipboardInput.placeholder = "Old clipboard ignored. Paste (Ctrl+V) if needed.";
+                    }
+                }
+                const imageType = item.types.find(type => type.startsWith("image/"));
+                if (imageType) {
+                    const blob = await item.getType(imageType);
+                    const buffer = await blob.arrayBuffer();
+                    // Si el peso de la imagen es distinto al último guardado, es una imagen nueva
+                    if (buffer.byteLength !== OmniCaptureModal.lastCapturedImageLength) {
+                        this.clipboardImageData = buffer;
+                        this.clipboardImageExt = imageType.split('/')[1] || 'png';
+                        this.clipboardImagePreview.src = URL.createObjectURL(blob);
+                        this.clipboardImagePreview.style.display = "block";
+                    }
+                }
+            }
+        } catch (err) {
+            try {
+                const clipText = await navigator.clipboard.readText();
+                if (clipText && clipText !== OmniCaptureModal.lastCapturedContext) {
+                    this.clipboardInput.value = clipText;
+                }
+            } catch (e) {
+                this.clipboardInput.placeholder = "Paste your context here (Ctrl+V)...";
+            }
+        }
+
+        // 🛡️ LISTENER DE PEGADO MANUAL (Ctrl+V)
+        this.modalEl.addEventListener("paste", async (e: ClipboardEvent) => {
+            if (!e.clipboardData) return;
+            const items = e.clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf("image") !== -1) {
+                    const blob = items[i].getAsFile();
+                    if (blob) {
+                        this.clipboardImageData = await blob.arrayBuffer();
+                        this.clipboardImageExt = blob.type.split('/')[1] || 'png';
+                        this.clipboardImagePreview.src = URL.createObjectURL(blob);
+                        this.clipboardImagePreview.style.display = "block";
+                    }
+                }
+            }
+        });
+
+        // 4. El Lienzo Oculto (Doodle)
+        this.canvasContainer = contentEl.createDiv();
+        this.canvasContainer.style.display = "none";
+        this.canvasContainer.style.border = "2px dashed var(--background-modifier-border)";
+        this.canvasContainer.style.borderRadius = "8px";
+        this.canvasContainer.style.backgroundColor = "#ffffff";
+        this.canvasContainer.style.cursor = "crosshair";
+        this.canvasContainer.style.marginTop = "15px";
+        this.canvasContainer.style.touchAction = "none";
+
+        this.canvas = this.canvasContainer.createEl("canvas");
+        this.canvas.width = 650;
+        this.canvas.height = 250;
+        this.canvas.style.display = "block";
+        
+        this.ctx = this.canvas.getContext("2d")!;
+        this.ctx.lineWidth = 3;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.strokeStyle = "#000000";
+
+        this.canvas.addEventListener("pointerdown", (e) => {
+            this.isDrawing = true;
+            this.hasDoodle = true;
+            const rect = this.canvas.getBoundingClientRect();
+            this.ctx.beginPath();
+            this.ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+        });
+        this.canvas.addEventListener("pointermove", (e) => {
+            if (!this.isDrawing) return;
+            const rect = this.canvas.getBoundingClientRect();
+            this.ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+            this.ctx.stroke();
+        });
+        this.canvas.addEventListener("pointerup", () => { this.isDrawing = false; });
+        this.canvas.addEventListener("pointerout", () => { this.isDrawing = false; });
+
+        // 5. Botonera
+        const btnContainer = contentEl.createDiv({ attr: { style: "display: flex; justify-content: space-between; margin-top: 20px;" } });
+
+        const doodleBtn = btnContainer.createEl("button", { text: "🎨 Add Doodle" });
+        doodleBtn.onclick = () => {
+            if (this.canvasContainer.style.display === "none") {
+                this.canvasContainer.style.display = "block";
+                doodleBtn.innerText = "🗑️ Clear Doodle";
+            } else {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.hasDoodle = false;
+                this.canvasContainer.style.display = "none";
+                doodleBtn.innerText = "🎨 Add Doodle";
+            }
+        };
+
+        const rightBtns = btnContainer.createDiv({ attr: { style: "display: flex; gap: 10px;" } });
+        const cancelBtn = rightBtns.createEl("button", { text: "Cancel" });
+        cancelBtn.onclick = () => this.close();
+
+        const saveBtn = rightBtns.createEl("button", { text: "💾 Save Capture", cls: "mod-cta" });
+        saveBtn.style.backgroundColor = "var(--interactive-accent)";
+        saveBtn.style.color = "var(--text-on-accent)";
+        saveBtn.onclick = () => this.saveCapture();
+    }
+
+    async saveCapture() {
+        const thought = this.thoughtInput.value.trim();
+        const context = this.clipboardInput.value.trim();
+        const destName = this.destinationInput.value.trim() || "Marginalia Inbox";
+        
+        if (!thought && !context && !this.hasDoodle && !this.clipboardImageData) {
+            new Notice("Capture is empty!");
+            return;
+        }
+
+        // 🧠 ACTUALIZAR MEMORIA (Destino, Texto e Imagen)
+        if (this.plugin.settings.lastOmniDestination !== destName) {
+            this.plugin.settings.lastOmniDestination = destName;
+            await this.plugin.saveSettings();
+        }
+        OmniCaptureModal.lastCapturedContext = context;
+        OmniCaptureModal.lastCapturedImageLength = this.clipboardImageData ? this.clipboardImageData.byteLength : 0;
+
+        let contextImageSyntax = "";
+        if (this.clipboardImageData) {
+            // @ts-ignore
+            const dateStr = window.moment().format('YYYYMMDD_HHmmss');
+            const fileName = `clip_${dateStr}.${this.clipboardImageExt}`;
+            let attachmentPath = fileName;
+            try {
+                // @ts-ignore
+                attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
+            } catch (e) {
+                attachmentPath = fileName;
+            }
+            await this.app.vault.createBinary(attachmentPath, this.clipboardImageData);
+            const actualFileName = attachmentPath.split('/').pop();
+            contextImageSyntax = `![[${actualFileName}]]`; 
+        }
+
+        let doodleSyntax = "";
+        if (this.hasDoodle) {
+            const dataUrl = this.canvas.toDataURL("image/png");
+            const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+            const binaryString = window.atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+            
+            // @ts-ignore
+            const dateStr = window.moment().format('YYYYMMDD_HHmmss');
+            const fileName = `doodle_${dateStr}.png`;
+            let attachmentPath = fileName;
+            try {
+                // @ts-ignore
+                attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
+            } catch (e) {
+                attachmentPath = fileName;
+            }
+            await this.app.vault.createBinary(attachmentPath, bytes.buffer);
+            const actualFileName = attachmentPath.split('/').pop();
+            doodleSyntax = `img:[[${actualFileName}]]`; 
+        }
+
+        let marginaliaContent = "";
+        if (thought) marginaliaContent += `${thought} `; 
+        if (doodleSyntax) marginaliaContent += `${doodleSyntax}`;
+
+        let finalMd = "\n";
+        
+        if (marginaliaContent.trim()) {
+            finalMd += `%%> ${marginaliaContent.trim()} %%\n`;
+        }
+        
+        if (context) {
+            finalMd += `${context}\n`;
+        }
+        if (contextImageSyntax) {
+            finalMd += `${contextImageSyntax}\n`;
+        }
+        
+        finalMd += `\n---\n`;
+
+        const file = this.app.vault.getAbstractFileByPath(`${destName}.md`);
+        try {
+            if (file instanceof TFile) {
+                await this.app.vault.append(file, finalMd);
+            } else {
+                await this.app.vault.create(`${destName}.md`, `# 📥 ${destName}\n` + finalMd);
+            }
+            new Notice(`✅ Capture injected into ${destName}`);
+            this.close();
+        } catch (error) {
+            new Notice("Error saving capture. Check console.");
+            console.error(error);
+        }
+    }
+
+    onClose() {
+        this.contentEl.empty();
+    }
 }
 
 // --- VISTA LATERAL (EXPLORER) ESTÉTICA MINIMALISTA Y BLINDADA ●🧠 ---
@@ -1600,9 +1902,9 @@ class CornellSettingTab extends PluginSettingTab {
 
 // --- PLUGIN PRINCIPAL ---
 export default class CornellMarginalia extends Plugin {
-    settings: CornellSettings;
+    settings!: CornellSettings;
     activeRecallMode: boolean = false; 
-    ribbonIcon: HTMLElement;
+    ribbonIcon!: HTMLElement;
 
     async onload() {
         await this.loadSettings();
@@ -1637,6 +1939,14 @@ export default class CornellMarginalia extends Plugin {
         });
 
         this.addCommand({
+            id: 'omni-capture',
+            name: '⚡ Omni-Capture (Idea, Context & Doodle)',
+            callback: () => {
+                new OmniCaptureModal(this.app, this).open();
+            }
+        });
+
+        this.addCommand({
             id: 'open-doodle-canvas',
             name: 'Draw a Doodle (Margin Image)',
             editorCallback: (editor: Editor) => {
@@ -1647,7 +1957,7 @@ export default class CornellMarginalia extends Plugin {
         this.addCommand({
             id: 'generate-flashcards-sr',
             name: 'Flashcards Generation (Spaced Repetition)',
-            editorCallback: (editor: Editor, view: MarkdownView) => { this.generateFlashcards(editor); }
+            editorCallback: (editor: Editor, view: MarkdownView | MarkdownFileInfo ) => { this.generateFlashcards(editor); }
         });
 
         this.addCommand({
