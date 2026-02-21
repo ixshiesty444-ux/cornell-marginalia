@@ -41,10 +41,11 @@ Start your note with a specific symbol to automatically color-code it. Perfect f
 
 Obsidian treats paragraphs and lists as completely separate blocks. If you add a margin note to a paragraph that is immediately followed by a list, Obsidian might push the list down in Reading View to avoid overlapping.
 
-To fix this and force Obsidian to treat them as a single block, wrap your text in our official invisible callout `> [!cornell]`, and place your margin note **just outside and above** the callout:
+To fix this and force Obsidian to treat them as a single block, wrap your text in our official invisible callout `> [!cornell]`:
 
-%%> Your margin note here %%
+
 > [!cornell]
+> %%> Your margin note here %%
 > This is my introductory paragraph:
 > - List item 1
 > - List item 2
