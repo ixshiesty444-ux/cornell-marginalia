@@ -19,6 +19,9 @@ interface CornellSettings {
     enableReadingView: boolean;
     outgoingLinks: string[]; 
     lastOmniDestination: string;
+    extractHighlights: boolean;
+    ignoredHighlightFolders: string;
+    ignoredHighlightTexts: string;
 }
 
 interface MarginaliaItem {
@@ -48,8 +51,12 @@ const DEFAULT_SETTINGS: CornellSettings = {
         { prefix: 'V-', color: '#00cc66' }  
     ],
     outgoingLinks: [],
-    lastOmniDestination: 'Marginalia Inbox'
+    lastOmniDestination: 'Marginalia Inbox',
+    extractHighlights: false,
+    ignoredHighlightFolders: 'Excalidraw',
+    ignoredHighlightTexts: '⚠  Switch to EXCALIDRAW VIEW in the MORE OPTIONS menu of this document. ⚠'
 }
+
 
 // --- WIDGET DE MARGEN ---
 class MarginNoteWidget extends WidgetType {
@@ -946,6 +953,48 @@ class CornellNotesView extends ItemView {
                         outgoingLinks: outgoingLinks
                     });
                 }
+
+                if (this.plugin.settings.extractHighlights) {
+                // 1. Comprobar exclusión de carpetas
+                const ignoredHlPaths = this.plugin.settings.ignoredHighlightFolders.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                const isFolderIgnored = ignoredHlPaths.some(p => file.path.startsWith(p));
+
+                if (!isFolderIgnored) {
+                    const highlightRegex = /==(.*?)==/g;
+                    let highlightMatch;
+
+                    const blockIdMatch = line.match(/\^([a-zA-Z0-9]+)\s*$/);
+                    const lineBlockId = blockIdMatch ? blockIdMatch[1] : null;
+
+                    // 2. Preparar exclusión de textos (convertimos a minúsculas para que sea a prueba de errores)
+                    const ignoredTexts = this.plugin.settings.ignoredHighlightTexts.split(',').map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
+
+                    while ((highlightMatch = highlightRegex.exec(line)) !== null) {
+                        const rawHighlightText = highlightMatch[1].trim();
+
+                        if (rawHighlightText.length === 0) continue;
+
+                        // 3. Comprobar exclusión de texto
+                        const isTextIgnored = ignoredTexts.some(t => rawHighlightText.toLowerCase().includes(t));
+                        if (isTextIgnored) continue;
+
+                        const linkRegex = /(?<!!)\[\[(.*?)\]\]/g;
+                        const outgoingLinks: string[] = [];
+                        const linkMatches = Array.from(rawHighlightText.matchAll(linkRegex));
+                        linkMatches.forEach(m => outgoingLinks.push(m[1]));
+
+                        allItemsFlat.push({
+                            text: `==${rawHighlightText}==`, 
+                            rawText: rawHighlightText,       
+                            color: 'var(--text-highlight-bg)', 
+                            file: file,
+                            line: i,
+                            blockId: lineBlockId,
+                            outgoingLinks: outgoingLinks
+                        });
+                    }
+                }
+            }
             }
         }
         this.cachedItems = allItemsFlat;
@@ -2354,6 +2403,35 @@ class CornellSettingTab extends PluginSettingTab {
         containerEl.createEl('h2', { text: 'Cornell Marginalia Settings' });
 
         containerEl.createEl('h3', { text: 'General Appearance' });
+
+        new Setting(containerEl)
+         .setName('Extract Highlights')
+         .setDesc('OPTIONAL: Include standard text highlights (==text==) in the Explorer and Pinboard.')
+         .addToggle(toggle => toggle
+             .setValue(this.plugin.settings.extractHighlights)
+             .onChange(async (value) => {
+                 this.plugin.settings.extractHighlights = value;
+                 await this.plugin.saveSettings();
+                 this.plugin.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE).forEach(leaf => {
+                     if (leaf.view instanceof CornellNotesView) leaf.view.scanNotes();
+                 });
+             }));
+
+        new Setting(containerEl)
+         .setName('Ignored Folders for Highlights')
+         .setDesc('Comma-separated list of folders to ignore ONLY for highlights (e.g., Excalidraw, Templates).')
+         .addTextArea(t => t.setValue(this.plugin.settings.ignoredHighlightFolders).onChange(async v => { 
+             this.plugin.settings.ignoredHighlightFolders = v; 
+             await this.plugin.saveSettings(); 
+         }));
+
+     new Setting(containerEl)
+         .setName('Ignored Highlight Texts')
+         .setDesc('Comma-separated list of exact texts or fragments to ignore (e.g., Switch to EXCALIDRAW VIEW).')
+         .addTextArea(t => t.setValue(this.plugin.settings.ignoredHighlightTexts).onChange(async v => { 
+             this.plugin.settings.ignoredHighlightTexts = v; 
+             await this.plugin.saveSettings(); 
+         }));
         
         new Setting(containerEl)
             .setName('Enable in Reading View')
