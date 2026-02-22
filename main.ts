@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component, Editor, Notice, MarkdownView, ItemView, WorkspaceLeaf, TFile, Modal, MarkdownFileInfo } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component, Editor, Notice, MarkdownView, ItemView, WorkspaceLeaf, TFile, Modal, MarkdownFileInfo, HoverPopover } from 'obsidian';
 import { RangeSetBuilder } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
@@ -1143,17 +1143,30 @@ class CornellNotesView extends ItemView {
                 }
             });
 
-            // 🚶 NAVEGACIÓN BÁSICA (Arriba/Abajo sin modificadores)
+            // 🚶 NAVEGACIÓN BÁSICA (Arriba/Abajo) Y HOVER POR TECLADO (H/Escape)
             itemWrapper.addEventListener('keydown', (e) => {
-                // Solo navega si no estás presionando teclas especiales
+                // Solo reacciona si no estás presionando teclas especiales (Ctrl, Shift, etc.)
                 if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
                     if (e.key === 'ArrowUp') {
                         e.preventDefault(); e.stopPropagation();
                         if (itemWrapper.previousElementSibling) (itemWrapper.previousElementSibling as HTMLElement).focus();
+                        
                     } else if (e.key === 'ArrowDown') {
                         e.preventDefault(); e.stopPropagation();
                         if (itemWrapper.nextElementSibling) (itemWrapper.nextElementSibling as HTMLElement).focus();
-                    }
+                        
+                    } else if (e.key.toLowerCase() === 'h') {
+                        // 👁️ HOVER POR TECLADO EN EL BOARD
+                        e.preventDefault(); e.stopPropagation();
+                        const hoverEvent = new MouseEvent('mouseenter', { bubbles: true, cancelable: true });
+                        itemWrapper.dispatchEvent(hoverEvent);
+                        
+                    } else if (e.key === 'Escape') {
+                        // 🚪 CERRAR HOVER EN EL BOARD
+                        e.preventDefault(); e.stopPropagation();
+                        const leaveEvent = new MouseEvent('mouseleave', { bubbles: true, cancelable: true });
+                        itemWrapper.dispatchEvent(leaveEvent);
+                    }   
                 }
             });
 
@@ -1752,8 +1765,28 @@ class CornellNotesView extends ItemView {
                         } else {
                             this.selectedForStitch.push(item);
                             marginaliaDOM.style.boxShadow = '0 0 0 2px var(--color-blue) inset'; 
+                        
                         }
+                    }  else if (e.key.toLowerCase() === 'h') {
+                        // 👁️ HOVER POR TECLADO
+                        e.preventDefault(); e.stopPropagation();
+                        
+                        // Disparamos un evento 'mouseenter' falso para engañar a tu código del Tooltip
+                        const hoverEvent = new MouseEvent('mouseenter', { bubbles: true, cancelable: true });
+                        marginaliaDOM.dispatchEvent(hoverEvent);
+                        
+                    } else if (e.key === 'Escape') {
+                        // 🚪 CERRAR HOVER / TOOLTIP
+                        e.preventDefault(); e.stopPropagation();
+                        
+                        const leaveEvent = new MouseEvent('mouseleave', { bubbles: true, cancelable: true });
+                        marginaliaDOM.dispatchEvent(leaveEvent);
+                        
+                        // 🧹 Fuerza letal contra el popover nativo al usar el teclado
+                        document.querySelectorAll('.hover-popover').forEach(el => el.remove());
                     }
+                    
+                
                 });
             }
         }
@@ -1813,13 +1846,42 @@ class CornellNotesView extends ItemView {
         textRow.style.justifyContent = 'space-between';
         textRow.style.alignItems = 'flex-start';
 
-        const textSpan = textRow.createSpan({ text: item.text });
-        
-        // 🛡️ ANTI-OVERFLOW para Marginalias
+        // 1. Creamos el contenedor vacío para el texto/imagen
+        const textSpan = textRow.createSpan();
         textSpan.style.wordBreak = 'break-word';
-        textSpan.style.whiteSpace = 'normal';
         textSpan.style.flexGrow = '1';
         textSpan.style.marginRight = '10px';
+
+        // 2. 🎨 MAGIA PURA: Le pasamos el texto al motor nativo de Obsidian
+        // Esto transforma Markdown, negritas, imágenes y recortes PDF++ en elementos visuales reales.
+        MarkdownRenderer.renderMarkdown(
+            item.text,         // El texto crudo (ej: ![[archivo.pdf#page=1]])
+            textSpan,          // Dónde lo vamos a dibujar
+            item.file.path,    // 🔗 FUNDAMENTAL: La ruta base para que los enlaces sepan a dónde apuntar
+            this               // El componente actual que controla el ciclo de vida
+        );  
+
+        // 3. 🩹 Parche de Estilos Post-Renderizado
+        // El renderizador es asíncrono y le gusta meter etiquetas <p> con mucho margen, 
+        // además las imágenes pueden ser enormes. Las domamos 50ms después de renderizar.
+        setTimeout(() => {
+            // Quitamos el margen a los párrafos para mantener tu diseño compacto
+            const paragraphs = textSpan.querySelectorAll('p');
+            paragraphs.forEach(p => {
+                p.style.margin = '0'; 
+                p.style.display = 'inline';
+            });
+            
+            // Limitamos el tamaño de los recortes PDF e imágenes para que no explote la barra lateral
+            const embeds = textSpan.querySelectorAll('.internal-embed, img');
+            embeds.forEach(embed => {
+                const el = embed as HTMLElement;
+                el.style.maxHeight = '180px'; 
+                el.style.maxWidth = '100%';
+                el.style.objectFit = 'contain';
+                el.style.borderRadius = '4px';
+            });
+        }, 50);
 
         // 🧠 Controles de Jerarquía solo visibles en el Pinboard
         if (isPinboardView) {
@@ -1920,14 +1982,22 @@ class CornellNotesView extends ItemView {
             await leaf.openFile(item.file, { eState: { line: item.line } });
         };
 
-        // 🛡️ MOTOR DE VISIÓN DE RAYOS X (Blindado Anti-Zombis)
+        // 🛡️ MOTOR DE VISIÓN DE RAYOS X (Estabilidad Absoluta + Integración PDF++)
         let hoverTimeout: NodeJS.Timeout | null = null;
         let tooltipEl: HTMLElement | null = null;
+        let tooltipComponent: Component | null = null;
         let isHovering = false; 
 
         const removeTooltip = () => {
             isHovering = false; 
             if (hoverTimeout) clearTimeout(hoverTimeout);
+            
+            // 🧹 SALVAVIDAS: Descargamos el componente de forma segura para liberar a PDF++
+            if (tooltipComponent) {
+                tooltipComponent.unload();
+                tooltipComponent = null;
+            }
+
             if (tooltipEl) {
                 tooltipEl.remove();
                 tooltipEl = null;
@@ -1935,64 +2005,235 @@ class CornellNotesView extends ItemView {
             document.querySelectorAll('.cornell-hover-tooltip').forEach(el => el.remove());
         };
 
-        itemDiv.addEventListener('mouseenter', (e: MouseEvent) => {
+         itemDiv.addEventListener('mouseenter', (e: MouseEvent) => {
+
             isHovering = true;
+
             hoverTimeout = setTimeout(async () => {
+
                 if (!isHovering) return; 
+
                 const content = await this.plugin.app.vault.cachedRead(item.file);
+
                 if (!isHovering) return; 
+
                 if (!document.body.contains(itemDiv)) return;
 
+
                 const lines = content.split('\n');
+
                 const startLine = Math.max(0, item.line - 1);
+
                 const endLine = Math.min(lines.length - 1, item.line + 1);
+
                 
-                let contextText = '';
+
+                removeTooltip(); 
+
+
+                // Extraemos todo el texto del bloque primero para analizarlo
+
+                let rawBlock = '';
+
                 for (let i = startLine; i <= endLine; i++) {
+
                     let cleanLine = lines[i].replace(/%%[><](.*?)%%/g, '').trim();
+
                     if (cleanLine) {
+
                         if (i === item.line) {
-                            contextText += `<div class="cornell-hover-highlight">${cleanLine}</div>`;
+
+                            rawBlock += `==${cleanLine}==\n`; 
+
                         } else {
-                            contextText += `<div class="cornell-hover-text-line">${cleanLine}</div>`;
+
+                            rawBlock += `${cleanLine}\n`;
+
                         }
+
                     }
+
                 }
 
-                if (!contextText) contextText = "<div class='cornell-hover-text-line'><i>No text context available.</i></div>";
 
-                document.querySelectorAll('.cornell-hover-tooltip').forEach(el => el.remove());
+                // 🎯 ESCÁNER DE PDF BLINDADO (Busca en todo el bloque)
+
+                const pdfRegex = /!*\[\[(.*?\.(?:pdf).*?)\]\]/i;
+
+                const pdfMatch = rawBlock.match(pdfRegex);
+
+
+                if (pdfMatch) {
+
+                    const pdfLinkText = pdfMatch[1]; 
+
+                    
+
+                    // Disparamos el Popover NATIVO con el source 'preview' para que PDF++ lo intercepte 100%
+
+                    this.plugin.app.workspace.trigger('hover-link', {
+
+                        event: e,
+
+                        source: 'preview', 
+
+                        hoverParent: itemDiv,
+
+                        targetEl: itemDiv,
+
+                        linktext: pdfLinkText,
+
+                        sourcePath: item.file.path
+
+                    });
+
+                    
+
+                    return; // ⛔ Cortamos acá si es PDF
+
+                }
+
+
+                // 🧱 JAULA DE TITANIO (Si NO es un PDF)
 
                 tooltipEl = document.createElement('div');
-                tooltipEl.className = 'cornell-hover-tooltip';
+
+                tooltipEl.className = 'popover hover-popover cornell-hover-tooltip markdown-rendered markdown-preview-view'; 
+
                 
+
+                // 🎨 ARREGLO DE DISPOSICIÓN Y CSS
+
+                tooltipEl.style.position = 'fixed'; 
+
+                tooltipEl.style.zIndex = '99999';
+
+                tooltipEl.style.width = '450px'; 
+
+                tooltipEl.style.maxHeight = '350px'; 
+
+                tooltipEl.style.overflowY = 'auto'; 
+
+                tooltipEl.style.backgroundColor = 'var(--background-primary)';
+
+                tooltipEl.style.border = '1px solid var(--background-modifier-border)';
+
+                tooltipEl.style.boxShadow = '0 10px 20px rgba(0,0,0,0.3)';
+
+                tooltipEl.style.borderRadius = '8px';
+
+                tooltipEl.style.padding = '12px';
+
+                tooltipEl.style.display = 'flex'; // Fuerza el diseño de caja flexible
+
+                tooltipEl.style.flexDirection = 'column'; // Apila título arriba y cuerpo abajo
+
+                tooltipEl.style.gap = '8px'; // Espacio entre título y contenido
+
+
+                const styleTag = document.createElement('style');
+
+                styleTag.innerHTML = `
+
+                    .cornell-hover-tooltip p { margin: 0 0 8px 0 !important; }
+
+                `;
+
+                tooltipEl.appendChild(styleTag);
+
+                
+
                 const header = tooltipEl.createDiv({ cls: 'cornell-hover-context' });
-                header.innerHTML = `<span>📄 <b>${item.file.basename}</b></span> <span>L${item.line + 1}</span>`;
+
+                // Letra más grande, en negrita y bloque completo
+
+                header.innerHTML = `<span style="font-size: 1.1em; color: var(--text-normal); font-weight: bold; display: block; border-bottom: 1px solid var(--background-modifier-border); padding-bottom: 6px; width: 100%;">📄 ${item.file.basename} (L${item.line + 1})</span>`;
+
                 
+
                 const body = tooltipEl.createDiv();
-                body.innerHTML = contextText;
+
+                body.style.width = '100%'; // Asegura que el cuerpo ocupe todo el ancho disponible
+
 
                 document.body.appendChild(tooltipEl);
 
+
+                // POSICIONAMIENTO
+
                 const rect = itemDiv.getBoundingClientRect();
-                let leftPos = rect.left - 340; 
+
+                let leftPos = rect.left - 470; 
+
                 if (leftPos < 10) leftPos = rect.right + 20; 
-                
+
                 tooltipEl.style.left = `${leftPos}px`;
-                tooltipEl.style.top = `${Math.min(rect.top, window.innerHeight - 150)}px`;
+
                 
-                requestAnimationFrame(() => {
-                    if (tooltipEl) tooltipEl.addClass('is-visible');
+
+                let topPos = rect.top;
+
+                if (topPos + 350 > window.innerHeight) topPos = window.innerHeight - 360;
+
+                tooltipEl.style.top = `${Math.max(10, topPos)}px`;
+
+
+                // BALA DE PLATA para imágenes nativas
+
+                const imgRegex = /!\[\[(.*?\.(?:png|jpg|jpeg|gif|bmp|svg))\|?(.*?)\]\]/gi;
+
+                rawBlock = rawBlock.replace(imgRegex, (match, filename) => {
+
+                    const file = this.plugin.app.metadataCache.getFirstLinkpathDest(filename.trim(), item.file.path);
+
+                    if (file) {
+
+                        const resourcePath = this.plugin.app.vault.getResourcePath(file);
+
+                        return `<img src="${resourcePath}" style="max-height:220px; max-width:100%; border-radius:6px; display:block; margin:8px auto;">`;
+
+                    }
+
+                    return match; 
+
                 });
-            }, 600); 
-        });
+
+
+                if (!rawBlock.trim()) rawBlock = "*No text context available.*";
+
+
+                await MarkdownRenderer.renderMarkdown(
+
+                    rawBlock, 
+
+                    body, 
+
+                    item.file.path, 
+
+                    this 
+
+                );
+
+
+                requestAnimationFrame(() => {
+
+                    if (tooltipEl) tooltipEl.addClass('is-visible');
+
+                });
+
+            }, 500); 
+
+        }); 
 
         itemDiv.addEventListener('mouseleave', removeTooltip);
         
         if (!isPinboardView) {
         itemDiv.setAttr('draggable', 'true');
         itemDiv.addEventListener('dragstart', (event: DragEvent) => {
-            removeTooltip(); 
+            
+            // 🧹 ELIMINAMOS EL TOOLTIP NATIVO AL ARRASTRAR LA NOTA
+            document.querySelectorAll('.hover-popover').forEach(el => el.remove());
+            
             if (!event.dataTransfer) return;
             event.dataTransfer.effectAllowed = 'copy'; 
             
@@ -2283,6 +2524,27 @@ export default class CornellMarginalia extends Plugin {
                 }
             }
         });
+
+        // 🚀 COMANDO 6: Buscar en el Explorador (Alt+F)
+        this.addCommand({
+            id: 'cornell-search-explorer',
+            name: 'Focus Search Bar',
+            hotkeys: [{ modifiers: ['Alt'], key: 'f' }], 
+            callback: () => {
+                const leaves = this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE);
+                if (leaves.length > 0) {
+                    const view = leaves[0].view;
+                    const searchInput = view.containerEl.querySelector('.cornell-search-bar') as HTMLInputElement;
+                    if (searchInput) {
+                        searchInput.focus();
+                        searchInput.select(); // Selecciona el texto automáticamente
+                    }
+                } else {
+                    new Notice("Open the Marginalia Explorer first.");
+                }
+            }
+        });    
+
         // 🚀 COMANDOS DE PESTAÑAS (Alt+1, Alt+2, Alt+3, Alt+4)
         ['Current', 'Vault', 'Threads', 'Board'].forEach((tabName, index) => {
             this.addCommand({
