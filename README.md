@@ -173,6 +173,61 @@ This command intelligently handles the syntax based on your cursor position:
 
     Hotkey (Recommended): Go to Settings > Hotkeys, search for "Cornell", and assign your favorite shortcuts (e.g., Ctrl + M to insert a note).
 
+---
+
+## ⌨️ Keyboard Shortcuts & Flow State
+
+Cornell Marginalia is designed to keep your hands on the keyboard. Master these shortcuts to build mindmaps and navigate your notes at lightning speed.
+
+### 🌍 Global Commands
+
+*These hotkeys can be customized in Obsidian's Settings > Hotkeys.*
+
+| Shortcut | Action | Description |
+| --- | --- | --- |
+| `Alt + E` | **Toggle Explorer** | Opens and focuses the Marginalia Explorer. Press it again to instantly return focus to your active note or PDF. |
+| `Alt + A` | **Add to Board** | Instantly jumps focus to the "Add text" input in the Pinboard from anywhere. |
+| `Alt + F` | **Search Notes** | Focuses the search bar in the Marginalia Explorer. |
+| `Alt + S` | **Mass Stitch** | Executes a mass connection (Stitch) between nodes previously selected with `Spacebar`. |
+| `Alt + R` | **Refresh** | Manually rescans your vault for new marginalias or highlights. |
+| `Alt + 1 to 4` | **Switch Tabs** | Quickly switch between Current (`1`), Vault (`2`), Threads (`3`), and Board (`4`) tabs. |
+| `Alt + Arrows` | **Move Nodes** | Move the currently focused Pinboard node Up, Down, Left (Outdent), or Right (Indent). |
+
+### 🧭 Explorer Navigation (Current & Vault Tabs)
+
+*When navigating the list of marginalias in the sidebar:*
+
+| Shortcut | Action |
+| --- | --- |
+| `↓` / `↑` | Navigate up and down the list of notes. (Tip: Press `↓` from the Search Bar to instantly jump into the list). |
+| `Shift + ↓/↑` | **Mass Pinning:** Rapidly pin multiple items to your Board as you scroll through them. |
+| `Enter` or `P` | **Pin Item:** Sends the currently focused marginalia/highlight to the Pinboard. |
+| `Ctrl + Enter` | **Source Jump:** Opens the original file and jumps directly to the line of the focused marginalia. |
+| `Spacebar` | **Select for Stitching:** Marks/unmarks the focused item for a Mass Stitch connection. |
+| `H` | **Hover/X-Ray Vision:** Opens the contextual popup to read the surrounding text without opening the file. |
+| `Esc` | Closes the hover popup. |
+
+### 📌 Pinboard Mastery (Board Tab)
+
+*When organizing your mindmap or outline in the Board:*
+
+| Shortcut | Action |
+| --- | --- |
+| `Enter` | **Contextual Insert:** (On a node) Jumps to the text bar to create a new sibling node right below it. |
+| `Alt + Enter` | **Quick Child Node:** (On a node) Jumps to the text bar to create a new child node (indented) right below it. |
+| `Enter` | **Rapid-Fire Entry:** (Inside the text bar) Saves your text and keeps the cursor in the bar so you can type continuous lists seamlessly. |
+| `↓` / `↑` | Navigate up and down your Board's nodes. |
+
+### ⚡ Omni-Capture Modal
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl + Enter` | **Quick Save:** Instantly saves your Omni-Capture (Idea + Context + Doodle) without needing to click the save button. |
+
+---
+
+
+
 ## 📦 Installation
 
 ### Method 1: Via BRAT (Recommended)
