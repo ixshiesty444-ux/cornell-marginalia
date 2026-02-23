@@ -208,7 +208,6 @@ Cornell Marginalia is designed to keep your hands on the keyboard. Master these 
 | `Esc` | Closes the hover popup. |
 
 ### 📌 Pinboard Mastery (Board Tab)
-
 *When organizing your mindmap or outline in the Board:*
 
 | Shortcut | Action |
@@ -216,6 +215,7 @@ Cornell Marginalia is designed to keep your hands on the keyboard. Master these 
 | `Enter` | **Contextual Insert:** (On a node) Jumps to the text bar to create a new sibling node right below it. |
 | `Alt + Enter` | **Quick Child Node:** (On a node) Jumps to the text bar to create a new child node (indented) right below it. |
 | `Enter` | **Rapid-Fire Entry:** (Inside the text bar) Saves your text and keeps the cursor in the bar so you can type continuous lists seamlessly. |
+| Type `-` | **Smart Indentation:** (Inside the text bar) Start your text with hyphens (`-`, `--`, `---`) to automatically define the indentation level of the new child node. |
 | `↓` / `↑` | Navigate up and down your Board's nodes. |
 
 ### ⚡ Omni-Capture Modal
