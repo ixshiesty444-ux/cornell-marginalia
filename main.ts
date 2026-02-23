@@ -640,6 +640,14 @@ class OmniCaptureModal extends Modal {
         saveBtn.style.color = "var(--text-on-accent)";
         saveBtn.onclick = () => this.saveCapture();
         
+        // 🚀 ATAJO RÁPIDO: Ctrl+Enter o Cmd+Enter para guardar al instante
+        this.modalEl.addEventListener("keydown", (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                e.preventDefault();
+                this.saveCapture();
+            }
+        });
+
         setTimeout(() => {
             this.thoughtInput.focus();
         }, 50);
@@ -767,6 +775,10 @@ class CornellNotesView extends ItemView {
     pinboardItems: MarginaliaItem[] = [];
 
     pinboardFocusIndex: number | null = null;
+    targetInsertIndex: number | null = null;
+    targetInsertAsChild: boolean = false;
+    autoPasteInterval: number | null = null;
+    lastClipboardText: string = "";
     
     constructor(leaf: WorkspaceLeaf, plugin: CornellMarginalia) {
         super(leaf);
@@ -856,6 +868,22 @@ class CornellNotesView extends ItemView {
             btnGroup.classList.toggle('cornell-tab-active', this.isGroupedByContent);
             this.applyFiltersAndRender();
         };
+
+    // 🚀 SALTO RÁPIDO A LA LISTA CON FLECHA ABAJO
+        // 🚀 SALTO RÁPIDO A LA LISTA CON FLECHA ABAJO
+        (container as HTMLElement).addEventListener('keydown', (e: KeyboardEvent) => {
+            if (e.key === 'ArrowDown') {
+                const activeEl = document.activeElement as HTMLElement;
+                // Si el usuario YA está navegando en la lista de notas, no interrumpimos el movimiento normal
+                if (activeEl && (activeEl.classList.contains('cornell-sidebar-item') || activeEl.classList.contains('cornell-pinboard-item'))) return;
+
+                // Si está en el buscador o en cualquier otro lado del panel, forzamos el salto a la primera nota
+                e.preventDefault();
+                const firstItem = container.querySelector('.cornell-sidebar-item, .cornell-pinboard-item') as HTMLElement;
+                if (firstItem) firstItem.focus();
+            }
+        });
+
     }
 
     updateStitchBanner() {
@@ -1090,7 +1118,14 @@ class CornellNotesView extends ItemView {
         exportRow.style.display = 'flex';
         exportRow.style.gap = '5px';
 
-        const exportBtn = exportRow.createEl('button', { text: '📝 Note', title: 'Export to Markdown Note' });
+        // 1. Primer par: Note y Canvas
+        // --- FILA 1: Note y Canvas ---
+        const exportRow1 = topControls.createDiv();
+        exportRow1.style.display = 'flex';
+        exportRow1.style.gap = '5px';
+        exportRow1.style.marginBottom = '5px'; // Separación con la fila de abajo
+
+        const exportBtn = exportRow1.createEl('button', { text: '📝 Note', title: 'Export to Markdown Note' });
         exportBtn.style.flex = '1';
         exportBtn.style.backgroundColor = 'var(--interactive-accent)';
         exportBtn.style.color = 'var(--text-on-accent)';
@@ -1098,13 +1133,55 @@ class CornellNotesView extends ItemView {
         exportBtn.style.cursor = 'pointer';
         exportBtn.onclick = () => this.exportPinboard();
 
-        const exportCanvasBtn = exportRow.createEl('button', { text: '🎨 Canvas', title: 'Export to Canvas' });
+        const exportCanvasBtn = exportRow1.createEl('button', { text: '🎨 Canvas', title: 'Export to Canvas' });
         exportCanvasBtn.style.flex = '1';
         exportCanvasBtn.style.backgroundColor = 'var(--color-purple)'; 
         exportCanvasBtn.style.color = '#fff';
         exportCanvasBtn.style.border = 'none';
         exportCanvasBtn.style.cursor = 'pointer';
         exportCanvasBtn.onclick = () => this.exportCanvas();
+
+        // --- FILA 2: Clear y Auto-Paste ---
+        const exportRow2 = topControls.createDiv();
+        exportRow2.style.display = 'flex';
+        exportRow2.style.gap = '5px';
+
+        const clearBoardBtn = exportRow2.createEl('button', { text: '🗑️ Clear', title: 'Clear Board' });
+        clearBoardBtn.style.flex = '1';
+        clearBoardBtn.onclick = () => { 
+            this.pinboardItems = []; 
+            this.applyFiltersAndRender(); 
+            new Notice('Board cleared!');
+        };
+
+        const autoPasteBtn = exportRow2.createEl('button', { text: this.autoPasteInterval ? '⏸ Auto ON' : '▶ Auto OFF', title: 'Auto-add copied text to Board' });
+        autoPasteBtn.style.flex = '1';
+        autoPasteBtn.style.backgroundColor = this.autoPasteInterval ? 'var(--color-green)' : '';
+        autoPasteBtn.style.color = this.autoPasteInterval ? '#fff' : '';
+        autoPasteBtn.style.border = 'none';
+        autoPasteBtn.style.cursor = 'pointer';
+        autoPasteBtn.onclick = async () => {
+            if (this.autoPasteInterval) {
+                window.clearInterval(this.autoPasteInterval);
+                this.autoPasteInterval = null;
+                new Notice("🤖 Auto-Paste deactivated.");
+            } else {
+                this.lastClipboardText = await navigator.clipboard.readText(); 
+                this.autoPasteInterval = window.setInterval(async () => {
+                    try {
+                        const currentText = await navigator.clipboard.readText();
+                        if (currentText && currentText !== this.lastClipboardText) {
+                            this.lastClipboardText = currentText;
+                            this.pinboardItems.push({ text: currentText, rawText: currentText, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isCustom: true, indentLevel: 0 });
+                            this.applyFiltersAndRender();
+                            new Notice("Text auto-pasted! 📝");
+                        }
+                    } catch (e) { }
+                }, 1000);
+                new Notice("🤖 Auto-Paste ON! Copy text to see it appear.");
+            }
+            this.applyFiltersAndRender(); 
+        };
 
         const titleRow = topControls.createDiv();
         titleRow.style.display = 'flex';
@@ -1117,12 +1194,37 @@ class CornellNotesView extends ItemView {
         addTitleBtn.onclick = () => {
             const val = titleInput.value.trim();
             if (val) {
+                let newItem: MarginaliaItem;
                 if (val.startsWith('#')) {
-                    this.pinboardItems.push({ text: val, rawText: val, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isTitle: true });
+                    newItem = { text: val, rawText: val, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isTitle: true };
                 } else {
-                    this.pinboardItems.push({ text: val, rawText: val, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isCustom: true, indentLevel: 0 });
+                    newItem = { text: val, rawText: val, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isCustom: true, indentLevel: 0 };
                 }
+
+                // 🧠 INSERCIÓN CONTEXTUAL: Si venimos de presionar Enter en un nodo
+                if (this.targetInsertIndex !== null && this.targetInsertIndex >= 0) {
+                    // Si no es un título, hereda la sangría (indentLevel) del padre
+                    if (!newItem.isTitle) {
+                        const parentIndent = this.pinboardItems[this.targetInsertIndex].indentLevel || 0;
+                        // Si presionó Alt+Enter, le sumamos 1 nivel. Si fue Enter normal, hereda el nivel.
+                        newItem.indentLevel = this.targetInsertAsChild ? parentIndent + 1 : parentIndent;
+                    }
+                    // Lo inyectamos justo debajo (índice + 1)
+                    this.pinboardItems.splice(this.targetInsertIndex + 1, 0, newItem);
+                    this.targetInsertIndex = null; // Reseteamos la memoria
+                } else {
+                    // Si no, lo manda al fondo como siempre
+                    this.pinboardItems.push(newItem);
+                }
+
+                titleInput.value = ''; // Limpiamos la barra
                 this.applyFiltersAndRender(); 
+
+                // 🎯 RECUPERAR EL FOCO: Buscamos la nueva caja de texto recién dibujada y le devolvemos el cursor
+                setTimeout(() => {
+                    const newInput = container.querySelector('input[placeholder*="Add text"]') as HTMLInputElement;
+                    if (newInput) newInput.focus();
+                }, 50);
             }
         };
         titleInput.addEventListener('keypress', (e) => {
@@ -1193,25 +1295,33 @@ class CornellNotesView extends ItemView {
             });
 
             // 🚶 NAVEGACIÓN BÁSICA (Arriba/Abajo) Y HOVER POR TECLADO (H/Escape)
+            // 🚶 NAVEGACIÓN BÁSICA (Arriba/Abajo) Y HOVER POR TECLADO (H/Escape)
             itemWrapper.addEventListener('keydown', (e) => {
-                // Solo reacciona si no estás presionando teclas especiales (Ctrl, Shift, etc.)
+                // 1. PRIMERO PROCESAMOS EL ENTER (Con o sin ALT)
+                if (e.key === 'Enter') {
+                    e.preventDefault(); e.stopPropagation();
+                    this.targetInsertIndex = currentIndex;
+                    this.targetInsertAsChild = e.altKey; // Guardamos si usó Alt para hacerlo hijo
+                    titleInput.focus();
+                    return; // Cortamos aquí para que no evalúe lo de abajo
+                }
+
+                // 2. LUEGO EL RESTO (Solo si no hay teclas especiales presionadas)
                 if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
                     if (e.key === 'ArrowUp') {
                         e.preventDefault(); e.stopPropagation();
                         if (itemWrapper.previousElementSibling) (itemWrapper.previousElementSibling as HTMLElement).focus();
-                        
+
                     } else if (e.key === 'ArrowDown') {
                         e.preventDefault(); e.stopPropagation();
                         if (itemWrapper.nextElementSibling) (itemWrapper.nextElementSibling as HTMLElement).focus();
-                        
+
                     } else if (e.key.toLowerCase() === 'h') {
-                        // 👁️ HOVER POR TECLADO EN EL BOARD
                         e.preventDefault(); e.stopPropagation();
                         const hoverEvent = new MouseEvent('mouseenter', { bubbles: true, cancelable: true });
                         itemWrapper.dispatchEvent(hoverEvent);
-                        
+
                     } else if (e.key === 'Escape') {
-                        // 🚪 CERRAR HOVER EN EL BOARD
                         e.preventDefault(); e.stopPropagation();
                         const leaveEvent = new MouseEvent('mouseleave', { bubbles: true, cancelable: true });
                         itemWrapper.dispatchEvent(leaveEvent);
@@ -1344,8 +1454,7 @@ class CornellNotesView extends ItemView {
             const newFile = await this.plugin.app.vault.create(fileName, content);
             await this.plugin.app.workspace.getLeaf(true).openFile(newFile);
             new Notice('Pinboard compiled successfully!');
-            this.pinboardItems = [];
-            this.applyFiltersAndRender();
+            
         } catch (error) {
             new Notice('Error creating Pinboard file. Check console.');
         }
@@ -1780,31 +1889,62 @@ class CornellNotesView extends ItemView {
                 });
 
                 // 🏎️ MOTOR DE NAVEGACIÓN Y ACCIONES
-                marginaliaDOM.addEventListener('keydown', (e) => {
+                // 🏎️ MOTOR DE NAVEGACIÓN Y ACCIONES (RESTAURADO Y MEJORADO)
+                marginaliaDOM.addEventListener('keydown', async (e) => {
+
+                    // 🧠 Función auxiliar para pinear rápidamente sin duplicar código
+                    // 🧠 Función auxiliar para pinear rápidamente sin duplicar código
+                    const pinCurrentItem = (targetItem: MarginaliaItem, domEl: HTMLElement) => {
+                        // 🛡️ BLINDADO: Verificamos que "pinned.file" y "targetItem.file" existan 
+                        // antes de comparar rutas, para no chocar con títulos o auto-pastes.
+                        const alreadyPinned = this.pinboardItems.some(pinned => 
+                            pinned.file && targetItem.file && 
+                            pinned.blockId === targetItem.blockId && 
+                            pinned.file.path === targetItem.file.path
+                        );
+
+                        if (!alreadyPinned) {
+                            this.pinboardItems.push(targetItem);
+                            new Notice(`📌 Pinned: ${targetItem.text.substring(0, 15)}...`);
+
+                            // Efecto visual de destello verde
+                            const originalBg = domEl.style.backgroundColor;
+                            domEl.style.backgroundColor = 'var(--color-green)';
+                            setTimeout(() => domEl.style.backgroundColor = originalBg, 200);
+                        }
+                    };
+
                     if (e.key === 'ArrowUp') {
                         e.preventDefault(); e.stopPropagation();
                         let prev = marginaliaDOM.previousElementSibling as HTMLElement;
                         while (prev && prev.tabIndex < 0) { prev = prev.previousElementSibling as HTMLElement; }
-                        if (prev) prev.focus();
-                        
+                        if (prev) {
+                            prev.focus();
+                            // 🚀 PIN MASIVO: Si mantienes presionado Shift mientras subes
+                            if (e.shiftKey) pinCurrentItem(item, marginaliaDOM);
+                        }
+
                     } else if (e.key === 'ArrowDown') {
                         e.preventDefault(); e.stopPropagation();
                         let next = marginaliaDOM.nextElementSibling as HTMLElement;
                         while (next && next.tabIndex < 0) { next = next.nextElementSibling as HTMLElement; }
-                        if (next) next.focus();
-                        
-                    } else if (e.key === 'Enter' || e.key.toLowerCase() === 'p') {
-                        e.preventDefault(); e.stopPropagation();
-                        const alreadyPinned = this.pinboardItems.some(pinned => pinned.blockId === item.blockId && pinned.file.path === item.file.path);
-                        if (!alreadyPinned) {
-                            this.pinboardItems.push(item);
-                            new Notice(`📌 Pinned: ${item.text.substring(0, 15)}...`);
-                            const originalBg = marginaliaDOM.style.backgroundColor;
-                            marginaliaDOM.style.backgroundColor = 'var(--color-green)';
-                            setTimeout(() => marginaliaDOM.style.backgroundColor = originalBg, 200);
-                        } else {
-                            new Notice("Already on the Board!");
+                        if (next) {
+                            next.focus();
+                            // 🚀 PIN MASIVO: Si mantienes presionado Shift mientras bajas
+                            if (e.shiftKey) pinCurrentItem(item, marginaliaDOM);
                         }
+
+                    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        // 🚀 CTRL + ENTER = Ir a la nota original
+                        e.preventDefault(); e.stopPropagation();
+                        const leaf = this.plugin.app.workspace.getLeaf(false);
+                        await leaf.openFile(item.file, { eState: { line: item.line } });
+
+                    } else if (e.key === 'Enter' || e.key.toLowerCase() === 'p') {
+                        // 📌 ENTER o P = Pinear al Board (Restaurado)
+                        e.preventDefault(); e.stopPropagation();
+                        pinCurrentItem(item, marginaliaDOM);
+
                     } else if (e.code === 'Space') {
                         e.preventDefault(); e.stopPropagation();
                         const selIndex = this.selectedForStitch.findIndex(i => i === item);
@@ -1814,28 +1954,21 @@ class CornellNotesView extends ItemView {
                         } else {
                             this.selectedForStitch.push(item);
                             marginaliaDOM.style.boxShadow = '0 0 0 2px var(--color-blue) inset'; 
-                        
                         }
+
                     }  else if (e.key.toLowerCase() === 'h') {
-                        // 👁️ HOVER POR TECLADO
+                        // 👁️ HOVER (Restaurado)
                         e.preventDefault(); e.stopPropagation();
-                        
-                        // Disparamos un evento 'mouseenter' falso para engañar a tu código del Tooltip
                         const hoverEvent = new MouseEvent('mouseenter', { bubbles: true, cancelable: true });
                         marginaliaDOM.dispatchEvent(hoverEvent);
-                        
+
                     } else if (e.key === 'Escape') {
-                        // 🚪 CERRAR HOVER / TOOLTIP
+                        // 🚪 CERRAR HOVER (Restaurado)
                         e.preventDefault(); e.stopPropagation();
-                        
                         const leaveEvent = new MouseEvent('mouseleave', { bubbles: true, cancelable: true });
                         marginaliaDOM.dispatchEvent(leaveEvent);
-                        
-                        // 🧹 Fuerza letal contra el popover nativo al usar el teclado
                         document.querySelectorAll('.hover-popover').forEach(el => el.remove());
                     }
-                    
-                
                 });
             }
         }
@@ -2390,6 +2523,15 @@ async executeMassStitch(sources: MarginaliaItem[], targets: MarginaliaItem[]) {
             return lines.join('\n');
         });
     }
+
+    // Se ejecuta cuando cierras la barra lateral
+    async onClose() {
+        if (this.autoPasteInterval) {
+            window.clearInterval(this.autoPasteInterval);
+            this.autoPasteInterval = null;
+        }
+    }
+
 }
 
 // --- SETTINGS TAB ---
@@ -2536,18 +2678,17 @@ export default class CornellMarginalia extends Plugin {
             callback: async () => {
                 let leaves = this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE);
                 if (leaves.length === 0) {
-                const rightLeaf = this.app.workspace.getRightLeaf(false);
-                if (rightLeaf) {
-                    await rightLeaf.setViewState({ type: CORNELL_VIEW_TYPE, active: true });
+                    const rightLeaf = this.app.workspace.getRightLeaf(false);
+                    if (rightLeaf) {
+                        await rightLeaf.setViewState({ type: CORNELL_VIEW_TYPE, active: true });
+                    }
+                    leaves = this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE);
                 }
-                leaves = this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE);
-            }
                 this.app.workspace.revealLeaf(leaves[0]);
-                
-                // 🎯 Magia de Foco: Buscamos el primer elemento navegable y lo enfocamos
+
                 setTimeout(() => {
                     const view = leaves[0].view as CornellNotesView;
-                    const firstItem = view.containerEl.querySelector('.cornell-sidebar-item') as HTMLElement;
+                    const firstItem = view.containerEl.querySelector('.cornell-sidebar-item, .cornell-pinboard-item') as HTMLElement;
                     if (firstItem) firstItem.focus();
                 }, 100);
             }
@@ -2622,6 +2763,34 @@ export default class CornellMarginalia extends Plugin {
                 }
             }
         });    
+
+        // 🚀 COMANDO 7: Foco en la caja de texto del Pinboard (Alt+A)
+        this.addCommand({
+            id: 'cornell-focus-pinboard-input',
+            name: 'Pinboard: Focus Add Text Input',
+            hotkeys: [{ modifiers: ['Alt'], key: 'a' }], 
+            callback: () => {
+                const leaves = this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE);
+                if (leaves.length > 0) {
+                    const view = leaves[0].view as CornellNotesView;
+                    // Si no estamos en el Pinboard, cambiamos a él primero
+                    if (view.currentTab !== 'pinboard') {
+                        view.currentTab = 'pinboard';
+                        view.renderUI();
+                        view.applyFiltersAndRender();
+                    }
+                    // Esperamos un instante a que se dibuje la caja y la enfocamos
+                    setTimeout(() => {
+                        const input = view.containerEl.querySelector('input[placeholder*="Add text"]') as HTMLInputElement;
+                        if (input) {
+                            input.focus();
+                        }
+                    }, 50);
+                } else {
+                    new Notice("Open the Marginalia Explorer first.");
+                }
+            }
+        });
 
         // 🚀 COMANDOS DE PESTAÑAS (Alt+1, Alt+2, Alt+3, Alt+4)
         ['Current', 'Vault', 'Threads', 'Board'].forEach((tabName, index) => {
