@@ -715,6 +715,178 @@ body.theme-dark .cm-cornell-margin img[src*="doodle_"] {
 
 
 /* ======================================================
+   ⚡ QUICK CAPTURE BAR (TOP PERSISTENTE)
+   ====================================================== */
+
+/* Contenedor principal limpio, sin bordes toscos */
+.cornell-quick-capture {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 15px;
+    padding: 0 4px; /* Un poquito de aire lateral */
+}
+
+/* Fila Superior: Destino y controles */
+.cornell-qc-toprow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+}
+
+.cornell-qc-label {
+    font-size: 0.8em;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* Input destino estilo Obsidian nativo */
+input.cornell-qc-dest {
+    flex-grow: 1;
+    height: 28px;
+    font-size: 0.85em;
+    background-color: var(--background-modifier-form-field);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    color: var(--text-normal);
+    padding: 0 8px;
+    min-width: 50px;
+}
+
+/* Micro-botones (ZK y Doodle) */
+button.cornell-qc-btn {
+    height: 28px;
+    font-size: 0.8em;
+    padding: 0 10px;
+    background-color: transparent;
+    border: 1px solid var(--background-modifier-border);
+    box-shadow: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+button.cornell-qc-btn:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+/* Fila Inferior: Textarea y Botón Rayo */
+.cornell-qc-bottomrow {
+    display: flex;
+    gap: 8px; /* Espacio entre la barra y el botón */
+    align-items: flex-start; /* Evita que el botón se estire feo si agrandas la caja de texto */
+    width: 100%;
+}
+
+/* Textarea idéntico a la barra de búsqueda */
+textarea.cornell-qc-textarea {
+    flex-grow: 1; /* Ocupa todo el espacio disponible */
+    min-height: 38px;
+    height: 38px;
+    resize: vertical; /* Permite agrandar hacia abajo si escribes mucho */
+    font-size: 0.85em;
+    padding: 8px 12px;
+    background-color: var(--background-modifier-form-field);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px; /* Bordes redondeados idénticos a Search */
+    color: var(--text-normal);
+    line-height: 1.4;
+    width: 100%; /* Forzar ancho completo */
+    box-sizing: border-box;
+    box-shadow: inset 0 0 0 1px transparent; /* Suavidad nativa */
+}
+
+textarea.cornell-qc-textarea:focus {
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 1px var(--interactive-accent);
+    outline: none;
+}
+
+/* Botón del Rayo alineado a la derecha */
+button.cornell-qc-submit {
+    flex-shrink: 0; /* ESCUDO: Evita que el text-area aplaste al botón */
+    width: 38px;
+    height: 38px; /* Cuadrado perfecto del mismo alto inicial que el textarea */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2em;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Ligera sombra para que resalte */
+    transition: transform 0.1s ease, filter 0.2s ease;
+}
+
+button.cornell-qc-submit:hover {
+    filter: brightness(1.1);
+}
+
+button.cornell-qc-submit:active {
+    transform: scale(0.95); /* Efecto de "clic" satisfactorio */
+}
+
+/* ======================================================
+   🎨 MINIMALIST ICONS & SEARCH BAR REFINEMENT
+   ====================================================== */
+
+/* Alinear iconos y texto en los botones */
+.cornell-qc-btn, .cornell-qc-label-icon {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.8em;
+    color: var(--text-muted);
+}
+.cornell-qc-label-icon { font-weight: 600; }
+
+/* Tamaño de los iconos SVG nativos */
+.cornell-qc-btn svg, .cornell-qc-label-icon svg { width: 14px; height: 14px; }
+.cornell-qc-submit svg { width: 18px; height: 18px; }
+
+/* Contenedor de la barra de búsqueda con Lupa incrustada */
+.cornell-search-wrapper {
+    position: relative;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.cornell-search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    opacity: 0.6;
+    display: flex;
+    pointer-events: none; /* Para que puedas hacer clic a través del icono */
+}
+.cornell-search-icon svg { width: 14px; height: 14px; }
+
+/* Estilo táctico/secundario para la caja de búsqueda */
+input.cornell-search-bar {
+    width: 100%;
+    padding-left: 30px !important; /* Espacio para la lupa */
+    background-color: transparent; /* Se funde con el fondo para ser menos llamativa */
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 20px; /* Bordes redondeados típicos de cajas de búsqueda */
+    color: var(--text-normal);
+    font-size: 0.85em;
+    height: 30px;
+    transition: background-color 0.2s ease;
+}
+
+input.cornell-search-bar:focus {
+    background-color: var(--background-modifier-form-field);
+}
+
+/* ======================================================
    👻 CLASE PARA OCULTAR TEXTO CRUDO EN MODO EDICIÓN
    ====================================================== */
 .cornell-hide-raw {

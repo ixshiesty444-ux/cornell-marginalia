@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component, Editor, Notice, MarkdownView, ItemView, WorkspaceLeaf, TFile, Modal, MarkdownFileInfo, HoverPopover } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component, Editor, Notice, MarkdownView, ItemView, WorkspaceLeaf, TFile, Modal, MarkdownFileInfo, HoverPopover, setIcon } from 'obsidian';
 import { RangeSetBuilder } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
@@ -22,7 +22,13 @@ interface CornellSettings {
     extractHighlights: boolean;
     ignoredHighlightFolders: string;
     ignoredHighlightTexts: string;
+    zkMode: boolean;
+    zkFolder: string;
+    doodleFolder: string;
+    canvasFolder: string;
+    pinboardFolder: string;
 }
+
 
 interface MarginaliaItem {
     text: string;
@@ -54,7 +60,12 @@ const DEFAULT_SETTINGS: CornellSettings = {
     lastOmniDestination: 'Marginalia Inbox',
     extractHighlights: false,
     ignoredHighlightFolders: 'Excalidraw',
-    ignoredHighlightTexts: '⚠  Switch to EXCALIDRAW VIEW in the MORE OPTIONS menu of this document. ⚠'
+    ignoredHighlightTexts: '⚠  Switch to EXCALIDRAW VIEW in the MORE OPTIONS menu of this document. ⚠', 
+    zkMode: false,
+    zkFolder: 'Zettelkasten',
+    doodleFolder: 'Marginalia Attachments',
+    canvasFolder: 'Evidence Boards',
+    pinboardFolder: 'Pinboards'
 }
 
 
@@ -699,7 +710,17 @@ class OmniCaptureModal extends Modal {
             // @ts-ignore
             const dateStr = window.moment().format('YYYYMMDD_HHmmss');
             const fileName = `doodle_${dateStr}.png`;
-            let attachmentPath = fileName;
+            const folder = this.plugin.settings.doodleFolder.trim();
+        let attachmentPath = fileName;
+        if (folder) {
+            await this.plugin.ensureFolderExists(folder);
+            attachmentPath = `${folder}/${fileName}`;
+        } else {
+            try {
+                // @ts-ignore
+                attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
+            } catch (e) { attachmentPath = fileName; }
+        }
             try {
                 // @ts-ignore
                 attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
@@ -755,6 +776,90 @@ class OmniCaptureModal extends Modal {
     }
 }
 
+// 🎨 MODAL AUXILIAR PARA EL OMNI-CAPTURE LATERAL
+class SidebarDoodleModal extends Modal {
+    canvas!: HTMLCanvasElement;
+    ctx!: CanvasRenderingContext2D;
+    isDrawing: boolean = false;
+    onSave: (data: ArrayBuffer) => void;
+
+    constructor(app: App, onSave: (data: ArrayBuffer) => void) {
+        super(app);
+        this.onSave = onSave;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        this.modalEl.style.width = "80vw";
+        this.modalEl.style.maxWidth = "800px";
+
+        contentEl.createEl("h3", { text: "✏️ Omni-Capture Doodle" });
+
+        const canvasContainer = contentEl.createDiv();
+        canvasContainer.style.border = "2px dashed var(--background-modifier-border)";
+        canvasContainer.style.borderRadius = "8px";
+        canvasContainer.style.backgroundColor = "#ffffff";
+        canvasContainer.style.cursor = "crosshair";
+        canvasContainer.style.touchAction = "none";
+
+        this.canvas = canvasContainer.createEl("canvas");
+        this.canvas.width = 750;
+        this.canvas.height = 400;
+        this.canvas.style.display = "block";
+        
+        this.ctx = this.canvas.getContext("2d")!;
+        this.ctx.lineWidth = 3;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.strokeStyle = "#000000";
+
+        this.canvas.addEventListener("pointerdown", (e) => {
+            this.isDrawing = true;
+            const rect = this.canvas.getBoundingClientRect();
+            this.ctx.beginPath();
+            this.ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+        });
+
+        this.canvas.addEventListener("pointermove", (e) => {
+            if (!this.isDrawing) return;
+            const rect = this.canvas.getBoundingClientRect();
+            this.ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+            this.ctx.stroke();
+        });
+
+        this.canvas.addEventListener("pointerup", () => { this.isDrawing = false; });
+        this.canvas.addEventListener("pointerout", () => { this.isDrawing = false; });
+
+        const btnContainer = contentEl.createDiv();
+        btnContainer.style.display = "flex";
+        btnContainer.style.justifyContent = "space-between";
+        btnContainer.style.marginTop = "15px";
+
+        const clearBtn = btnContainer.createEl("button", { text: "🗑️ Clear" });
+        clearBtn.onclick = () => this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const rightBtns = btnContainer.createDiv({ attr: { style: "display: flex; gap: 10px;" } });
+        const cancelBtn = rightBtns.createEl("button", { text: "Cancel" });
+        cancelBtn.onclick = () => this.close();
+
+        const saveBtn = rightBtns.createEl("button", { text: "✔️ Attach to Capture", cls: "mod-cta" });
+        saveBtn.style.backgroundColor = "var(--interactive-accent)";
+        saveBtn.style.color = "var(--text-on-accent)";
+        
+        saveBtn.onclick = () => {
+            const dataUrl = this.canvas.toDataURL("image/png");
+            const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+            // Usa la misma función base64ToArrayBuffer de tu código original
+            const arrayBuffer = base64ToArrayBuffer(base64Data);
+            this.onSave(arrayBuffer);
+            this.close();
+        };
+    }
+
+    onClose() { this.contentEl.empty(); }
+}
+
 // --- VISTA LATERAL (EXPLORER) ESTÉTICA MINIMALISTA Y BLINDADA ●🧠 ---
 class CornellNotesView extends ItemView {
     plugin: CornellMarginalia;
@@ -777,8 +882,21 @@ class CornellNotesView extends ItemView {
     pinboardFocusIndex: number | null = null;
     targetInsertIndex: number | null = null;
     targetInsertAsChild: boolean = false;
+    // 🗄️ VARIABLES DEL SLIDER (CAJÓN DESLIZANTE)
+    sliderContainer!: HTMLElement;
+    sliderDestInput!: HTMLInputElement;
+    sliderIdeaInput!: HTMLTextAreaElement;
+    isSliderOpen: boolean = false;
+    // HASTA ACA
     autoPasteInterval: number | null = null;
     lastClipboardText: string = "";
+
+    // 🧠 MEMORIA DEL OMNI-CAPTURE LATERAL
+    static lastCapturedContext: string = "";
+    static lastCapturedImageLength: number = 0;
+    pendingDoodleData: ArrayBuffer | null = null;
+    pendingClipboardImageData: ArrayBuffer | null = null;
+    pendingClipboardImageExt: string = "png";
     
     constructor(leaf: WorkspaceLeaf, plugin: CornellMarginalia) {
         super(leaf);
@@ -800,6 +918,7 @@ class CornellNotesView extends ItemView {
         container.addClass('cornell-sidebar-container');
 
         container.createEl("h4", { text: "Marginalia Explorer", cls: "cornell-sidebar-title" });
+        this.renderQuickCapture(container as HTMLElement); // Aquí inyectamos la barra superior
 
         const controlsDiv = container.createDiv({ cls: 'cornell-sidebar-controls' });
         
@@ -820,8 +939,17 @@ class CornellNotesView extends ItemView {
         const btnRefresh = actionControlsDiv.createEl("button", { text: "⟳", title: "Refresh data" });
 
         const filterContainer = container.createDiv({ cls: 'cornell-sidebar-filters' });
+        // 👁️ OCULTAMIENTO CONTEXTUAL: Si estamos en el Board, la barra de búsqueda y los colores desaparecen
+        if (this.currentTab === 'pinboard') {
+            filterContainer.style.display = 'none';
+            actionControlsDiv.style.display = 'none';
+        }
+        // Barra de búsqueda con icono nativo incrustado
+     const searchWrapper = filterContainer.createDiv({ cls: 'cornell-search-wrapper' });
+     const searchIconEl = searchWrapper.createSpan({ cls: 'cornell-search-icon' });
+     setIcon(searchIconEl, 'search'); // Lupa nativa
+     const searchInput = searchWrapper.createEl('input', { type: 'text', placeholder: 'Search notes...', cls: 'cornell-search-bar' });
         
-        const searchInput = filterContainer.createEl('input', { type: 'text', placeholder: 'Search notes...', cls: 'cornell-search-bar' });
         searchInput.value = this.searchQuery;
         searchInput.oninput = (e) => {
             this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase();
@@ -869,6 +997,8 @@ class CornellNotesView extends ItemView {
             this.applyFiltersAndRender();
         };
 
+
+
     // 🚀 SALTO RÁPIDO A LA LISTA CON FLECHA ABAJO
         // 🚀 SALTO RÁPIDO A LA LISTA CON FLECHA ABAJO
         (container as HTMLElement).addEventListener('keydown', (e: KeyboardEvent) => {
@@ -898,6 +1028,349 @@ class CornellNotesView extends ItemView {
             banner.style.backgroundColor = "var(--color-green)";
         }
     }
+    // 🗄️ UI DEL CAJÓN DESLIZANTE (OMNI-CAPTURE)
+    // ⚡ OMNI-CAPTURE TOP BAR (DISEÑO PERSISTENTE)
+    // ⚡ OMNI-CAPTURE BAR (DISEÑO MUTANTE CONTEXTUAL)
+    renderQuickCapture(parent: HTMLElement) {
+        const qcContainer = parent.createDiv({ cls: 'cornell-quick-capture' });
+
+        if (this.currentTab === 'pinboard') {
+            // 📌 ESTADO 2: MODO "CORCHO" (Pinboard)
+            const topRow = qcContainer.createDiv({ cls: 'cornell-qc-toprow' });
+            topRow.style.justifyContent = 'center'; // Centramos el texto para que se vea elegante
+            
+            // 🎨 ICONO: Tablero en lugar de 📍
+            const destLabel = topRow.createSpan({ cls: 'cornell-qc-label' });
+            destLabel.style.display = 'flex'; destLabel.style.alignItems = 'center'; destLabel.style.gap = '4px';
+            setIcon(destLabel, 'layout-dashboard');
+            destLabel.createSpan({ text: 'Active Board' });
+
+            const bottomRow = qcContainer.createDiv({ cls: 'cornell-qc-bottomrow' });
+            this.sliderIdeaInput = bottomRow.createEl('textarea', { placeholder: 'Add text (# for titles, - for children)' });
+            this.sliderIdeaInput.classList.add('cornell-qc-textarea');
+
+            // 🎨 ICONO: Plus en lugar de ➕
+            const submitBtn = bottomRow.createEl('button', { title: 'Add to Board (Enter)' });
+            submitBtn.classList.add('cornell-qc-submit');
+            setIcon(submitBtn, 'plus');
+            
+            // Replicamos la magia de los guiones y la inserción contextual aquí
+            const addAction = () => {
+                const val = this.sliderIdeaInput.value.trim();
+                if (val) {
+                    let newItem: MarginaliaItem;
+                    let isManualHyphen = false;
+
+                    if (val.startsWith('#')) {
+                        newItem = { text: val, rawText: val, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isTitle: true };
+                    } else {
+                        const dashMatch = val.match(/^(-+)\s*(.*)/);
+                        let cleanText = val;
+                        let manualIndent = 0;
+                        if (dashMatch) { isManualHyphen = true; manualIndent = dashMatch[1].length; cleanText = dashMatch[2] || "Empty node"; }
+                        newItem = { text: cleanText, rawText: cleanText, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isCustom: true, indentLevel: manualIndent };
+                    }
+
+                    if (this.targetInsertIndex !== null && this.targetInsertIndex >= 0) {
+                        if (!newItem.isTitle && !isManualHyphen) {
+                            const parentIndent = this.pinboardItems[this.targetInsertIndex].indentLevel || 0;
+                            newItem.indentLevel = this.targetInsertAsChild ? parentIndent + 1 : parentIndent;
+                        }
+                        this.pinboardItems.splice(this.targetInsertIndex + 1, 0, newItem);
+                        this.targetInsertIndex = null;
+                    } else {
+                        this.pinboardItems.push(newItem);
+                    }
+
+                    this.sliderIdeaInput.value = '';
+                    this.applyFiltersAndRender(); 
+                    
+                    setTimeout(() => { if (this.sliderIdeaInput) this.sliderIdeaInput.focus(); }, 50);
+                }
+            };
+
+            submitBtn.onclick = addAction;
+            // Atajo para disparar con Enter (sin Shift)
+            this.sliderIdeaInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addAction(); }
+            });
+
+        } else {
+            // 📝 ESTADO 1: MODO "LECTURA" (CEREBRO OMNI-CAPTURE RESTAURADO)
+            const topRow = qcContainer.createDiv({ cls: 'cornell-qc-toprow' });
+            
+            const destLabel = topRow.createSpan({ cls: 'cornell-qc-label' });
+            destLabel.style.display = 'flex'; destLabel.style.alignItems = 'center'; destLabel.style.gap = '4px';
+            setIcon(destLabel, 'inbox');
+            destLabel.createSpan({ text: 'Dest:' });
+            
+            this.sliderDestInput = topRow.createEl('input', { type: 'text', placeholder: 'Inbox...' });
+            this.sliderDestInput.value = this.plugin.settings.lastOmniDestination || "Marginalia Inbox";
+            this.sliderDestInput.classList.add('cornell-qc-dest');
+
+            // Autocompletado de bóveda (igual que tu viejo modal)
+            const datalistId = "sidebar-omni-vault-files";
+            let datalist = document.getElementById(datalistId) as HTMLDataListElement;
+            if (!datalist) {
+                datalist = document.body.createEl("datalist", { attr: { id: datalistId } });
+            } else { datalist.empty(); }
+            this.app.vault.getMarkdownFiles().forEach(f => datalist.createEl("option", { value: f.basename }));
+            this.sliderDestInput.setAttribute("list", datalistId);
+            
+            // 🗃️ BOTÓN ZK (Interruptor con memoria)
+            const zkBtn = topRow.createEl('button', { title: 'Toggle Zettelkasten Mode' });
+            zkBtn.classList.add('cornell-qc-btn');
+            zkBtn.style.display = 'flex'; zkBtn.style.alignItems = 'center'; zkBtn.style.gap = '4px';
+            setIcon(zkBtn, 'fingerprint');
+            zkBtn.createSpan({ text: 'ZK' });
+
+            const updateZkUI = () => {
+                if (this.plugin.settings.zkMode) {
+                    zkBtn.style.color = "var(--color-green)";
+                    zkBtn.style.backgroundColor = "var(--background-modifier-hover)";
+                    zkBtn.style.borderColor = "var(--color-green)";
+                } else {
+                    zkBtn.style.color = "var(--text-muted)";
+                    zkBtn.style.backgroundColor = "transparent";
+                    zkBtn.style.borderColor = "var(--background-modifier-border)";
+                }
+            };
+            updateZkUI(); // Pintar el estado inicial
+
+            zkBtn.onclick = async () => {
+                this.plugin.settings.zkMode = !this.plugin.settings.zkMode;
+                await this.plugin.saveSettings();
+                updateZkUI();
+                new Notice(this.plugin.settings.zkMode ? "🗃️ ZK Mode: ON (Will create new notes)" : "🗃️ ZK Mode: OFF (Will append to Destination)");
+                this.sliderIdeaInput.focus();
+            };
+
+            const clearCtxBtn = topRow.createEl('button', { title: 'Clear Clipboard & Memory' });
+            clearCtxBtn.classList.add('cornell-qc-btn');
+            clearCtxBtn.style.display = 'flex'; clearCtxBtn.style.alignItems = 'center'; clearCtxBtn.style.gap = '4px';
+            setIcon(clearCtxBtn, 'eraser');
+            clearCtxBtn.createSpan({ text: 'Clear' });
+            clearCtxBtn.onclick = async () => { 
+                await navigator.clipboard.writeText('');
+                CornellNotesView.lastCapturedContext = "";
+                CornellNotesView.lastCapturedImageLength = 0;
+                this.pendingClipboardImageData = null;
+                this.pendingDoodleData = null;
+                doodleBtn.style.color = "var(--text-muted)"; // Resetea el color del doodle
+                new Notice("🧹 Clipboard & Memory cleared!"); 
+            };
+
+            const doodleBtn = topRow.createEl('button', { title: 'Attach Doodle' });
+            doodleBtn.classList.add('cornell-qc-btn');
+            doodleBtn.style.display = 'flex'; doodleBtn.style.alignItems = 'center'; doodleBtn.style.gap = '4px';
+            setIcon(doodleBtn, 'palette');
+            doodleBtn.createSpan({ text: 'Doodle' });
+            doodleBtn.onclick = () => { 
+                new SidebarDoodleModal(this.app, (arrayBuffer) => {
+                    this.pendingDoodleData = arrayBuffer;
+                    doodleBtn.style.color = "var(--color-green)"; // Confirmación visual
+                    new Notice("🎨 Doodle attached! Press ⚡ to save.");
+                }).open();
+            };
+
+            const bottomRow = qcContainer.createDiv({ cls: 'cornell-qc-bottomrow' });
+            
+            this.sliderIdeaInput = bottomRow.createEl('textarea', { placeholder: '💡 Your Idea (Auto-paste enabled)...' });
+            this.sliderIdeaInput.classList.add('cornell-qc-textarea');
+            
+            // 🛡️ LISTENER DE PEGADO MANUAL PARA IMÁGENES (Ctrl+V)
+            this.sliderIdeaInput.addEventListener("paste", async (e: ClipboardEvent) => {
+                if (!e.clipboardData) return;
+                const items = e.clipboardData.items;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf("image") !== -1) {
+                        const blob = items[i].getAsFile();
+                        if (blob) {
+                            this.pendingClipboardImageData = await blob.arrayBuffer();
+                            this.pendingClipboardImageExt = blob.type.split('/')[1] || 'png';
+                            new Notice("🖼️ Image attached to capture!");
+                        }
+                    }
+                }
+            });
+
+            const submitBtn = bottomRow.createEl('button', { title: 'Save Capture (Ctrl+Enter)' });
+            submitBtn.classList.add('cornell-qc-submit');
+            setIcon(submitBtn, 'zap');
+
+            // 🧠 EL MOTOR DEFINITIVO
+            const saveCapture = async () => {
+                const thought = this.sliderIdeaInput.value.trim();
+                let destNameInput = this.sliderDestInput.value.trim() || "Marginalia Inbox";
+                let finalDestName = destNameInput;
+
+                // 🧠 MAGIA ZK: Genera un ID limpio de 12 dígitos (YYYYMMDDHHmmss)
+                if (this.plugin.settings.zkMode) {
+                    // @ts-ignore
+                    const zkId = window.moment().format('YYYYMMDDHHmmss');
+                    
+                    // Si el usuario escribió un título en Dest (ej. "Dioptría"), lo junta: "202602231845 - Dioptría"
+                    // Si la caja estaba vacía o decía "Marginalia Inbox", simplemente usa el ID pelado: "202602231845"
+                    if (destNameInput && destNameInput !== "Marginalia Inbox") {
+                        finalDestName = `${zkId} - ${destNameInput}`;
+                    } else {
+                        finalDestName = zkId;
+                    }
+                }
+                
+                // 1. AUTO-LECTURA DEL PORTAPAPELES (Con protección try-catch)
+                let context = "";
+                try {
+                    const clipboardItems = await navigator.clipboard.read();
+                    for (const item of clipboardItems) {
+                        if (item.types.includes("text/plain")) {
+                            const blob = await item.getType("text/plain");
+                            const text = await blob.text();
+                            if (text && text !== CornellNotesView.lastCapturedContext) {
+                                context = text.trim();
+                                CornellNotesView.lastCapturedContext = context;
+                            }
+                        }
+                        const imageType = item.types.find(type => type.startsWith("image/"));
+                        if (imageType) {
+                            const blob = await item.getType(imageType);
+                            const buffer = await blob.arrayBuffer();
+                            if (buffer.byteLength !== CornellNotesView.lastCapturedImageLength) {
+                                this.pendingClipboardImageData = buffer;
+                                this.pendingClipboardImageExt = imageType.split('/')[1] || 'png';
+                                CornellNotesView.lastCapturedImageLength = buffer.byteLength;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    // Fallback si `read()` falla por permisos
+                    try {
+                        const clipText = await navigator.clipboard.readText();
+                        if (clipText && clipText !== CornellNotesView.lastCapturedContext) {
+                            context = clipText.trim();
+                            CornellNotesView.lastCapturedContext = context;
+                        }
+                    } catch (e) { }
+                }
+
+                if (!thought && !context && !this.pendingDoodleData && !this.pendingClipboardImageData) {
+                    new Notice("⚠️ Capture is empty!");
+                    return;
+                }
+
+                // 2. PROCESAR IMÁGENES AL DISCO
+                let contextImageSyntax = "";
+                if (this.pendingClipboardImageData) {
+                    // @ts-ignore
+                    const dateStr = window.moment().format('YYYYMMDD_HHmmss');
+                    const fileName = `clip_${dateStr}.${this.pendingClipboardImageExt}`;
+                    let attachmentPath = fileName;
+                    try {
+                        // @ts-ignore
+                        attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
+                    } catch (e) { attachmentPath = fileName; }
+                    await this.app.vault.createBinary(attachmentPath, this.pendingClipboardImageData);
+                    const actualFileName = attachmentPath.split('/').pop();
+                    contextImageSyntax = `![[${actualFileName}]]`; 
+                }
+
+                let doodleSyntax = "";
+                if (this.pendingDoodleData) {
+                    // @ts-ignore
+                    const dateStr = window.moment().format('YYYYMMDD_HHmmss');
+                    const fileName = `doodle_${dateStr}.png`;
+                    const folder = this.plugin.settings.doodleFolder.trim();
+                    let attachmentPath = fileName;
+                    
+                    if (folder) {
+                        // Si el usuario definió una carpeta, la creamos y apuntamos allí
+                        await this.plugin.ensureFolderExists(folder);
+                        attachmentPath = `${folder}/${fileName}`;
+                    } else {
+                        // Si está vacío, usamos la ruta por defecto de Obsidian
+                        try {
+                            // @ts-ignore
+                            attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
+                        } catch (e) { 
+                            attachmentPath = fileName; 
+                        }
+                    }
+                    
+                    await this.app.vault.createBinary(attachmentPath, this.pendingDoodleData);
+                    const actualFileName = attachmentPath.split('/').pop();
+                    doodleSyntax = `img:[[${actualFileName}]]`; 
+                }
+
+                // 3. ENSAMBLAJE DE MARKDOWN (Idéntico a tu lógica original)
+                let marginaliaContent = "";
+                if (thought) marginaliaContent += `${thought} `; 
+                if (doodleSyntax) marginaliaContent += `${doodleSyntax}`;
+
+                let finalMd = "\n";
+                if (marginaliaContent.trim()) {
+                    finalMd += `%%> ${marginaliaContent.trim()} %%\n`;
+                }
+                if (context) {
+                    finalMd += `${context}\n`;
+                }
+                if (contextImageSyntax) {
+                    finalMd += `${contextImageSyntax}\n`;
+                }
+                finalMd += `\n---\n`;
+
+                // 4. INYECCIÓN BÚSQUEDA GLOBAL
+                let file = this.app.metadataCache.getFirstLinkpathDest(finalDestName, "");
+                try {
+                    if (file instanceof TFile) {
+                        await this.app.vault.append(file, finalMd);
+                    } else {
+                        let fileName = finalDestName.endsWith(".md") ? finalDestName : `${finalDestName}.md`;
+                        
+                        // 📁 MAGIA DE CARPETA ZK: Si es ZK, lo enviamos a su propia carpeta
+                        if (this.plugin.settings.zkMode) {
+                            const zkFolderPath = this.plugin.settings.zkFolder.trim();
+                            if (zkFolderPath) {
+                                await this.plugin.ensureFolderExists(zkFolderPath);
+                                fileName = `${zkFolderPath}/${fileName}`;
+                            }
+                            await this.app.vault.create(fileName, `# 🗃️ ${finalDestName}\n` + finalMd);
+                        } else {
+                            await this.app.vault.create(fileName, `# 📥 ${finalDestName}\n` + finalMd);
+                        }
+                    }
+                    
+                    // 5. LIMPIEZA INTELIGENTE
+                new Notice(`⚡ Capture injected into ${finalDestName}`);
+                this.sliderIdeaInput.value = '';
+                this.pendingDoodleData = null;
+                this.pendingClipboardImageData = null;
+                doodleBtn.style.color = "var(--text-muted)";
+
+                // 🧠 MAGIA: Solo actualizamos la memoria si NO estamos en modo ZK.
+                // Así, la caja "Dest" sigue recordando la carpeta base (ej. "Inbox"),
+                // y el ZK le pega un ID nuevo y limpio a cada captura.
+                if (!this.plugin.settings.zkMode && this.plugin.settings.lastOmniDestination !== destNameInput) {
+                    this.plugin.settings.lastOmniDestination = destNameInput;
+                    await this.plugin.saveSettings();
+                }
+
+                this.applyFiltersAndRender();
+                } catch (error) {
+                    new Notice("❌ Error saving capture. Check console.");
+                    console.error(error);
+                }
+            };
+
+            submitBtn.onclick = saveCapture;
+            this.sliderIdeaInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    saveCapture();
+                }
+            });
+        }
+    }
+    
 
     async scanNotes() {
         if (this.currentTab === 'pinboard') {
@@ -1098,68 +1571,82 @@ class CornellNotesView extends ItemView {
         topControls.style.gap = '10px';
         topControls.style.marginBottom = '20px';
 
-        // 🎨 PREFERENCIA APLICADA: Fila 1 (Botones Sobrios y coherentes)
-        const outlineRow = topControls.createDiv();
-        outlineRow.style.display = 'flex';
-        outlineRow.style.gap = '5px';
+        // 🛠️ NUEVA BARRA DE HERRAMIENTAS MINIMALISTA (ENFOQUE 1)
+        const toolbarRow = topControls.createDiv();
+        toolbarRow.style.display = 'flex';
+        toolbarRow.style.justifyContent = 'space-between';
+        toolbarRow.style.alignItems = 'center';
+        toolbarRow.style.marginBottom = '5px';
 
-        const exportMindmapBtn = outlineRow.createEl('button', { text: '📋 Copy', title: 'Copy Board to Clipboard' });
-        exportMindmapBtn.style.flex = '1';
-        exportMindmapBtn.style.cursor = 'pointer';
-        exportMindmapBtn.onclick = () => this.exportMindmap();
+        // Grupo izquierdo (Iconos puros)
+        const leftGroup = toolbarRow.createDiv();
+        leftGroup.style.display = 'flex';
+        leftGroup.style.gap = '4px';
 
-        const importSkeletonBtn = outlineRow.createEl('button', { text: '📥 Paste', title: 'Import headers & lists from active note' });
-        importSkeletonBtn.style.flex = '1';
-        importSkeletonBtn.style.cursor = 'pointer';
-        importSkeletonBtn.onclick = () => this.importActiveFileSkeleton();
+        // Helper interno para crear botones de icono cuadrados idénticos a los nativos
+        const createIconBtn = (icon: string, title: string) => {
+            const btn = leftGroup.createEl('button', { title });
+            btn.style.height = '28px';
+            btn.style.width = '32px';
+            btn.style.padding = '0';
+            btn.style.display = 'flex';
+            btn.style.alignItems = 'center';
+            btn.style.justifyContent = 'center';
+            btn.style.backgroundColor = 'transparent';
+            btn.style.boxShadow = 'none';
+            btn.style.border = '1px solid var(--background-modifier-border)';
+            btn.style.color = 'var(--text-muted)';
+            btn.style.borderRadius = '4px';
+            btn.onmouseenter = () => { btn.style.backgroundColor = 'var(--background-modifier-hover)'; btn.style.color = 'var(--text-normal)'; };
+            btn.onmouseleave = () => { btn.style.backgroundColor = 'transparent'; btn.style.color = 'var(--text-muted)'; };
+            setIcon(btn, icon);
+            return btn;
+        };
 
-        // Fila 2 (Exportación de Archivos - Colores mantenidos)
-        const exportRow = topControls.createDiv();
-        exportRow.style.display = 'flex';
-        exportRow.style.gap = '5px';
+        createIconBtn('copy', 'Copy Board to Clipboard').onclick = () => this.exportMindmap();
+        createIconBtn('download', 'Import skeleton from active note').onclick = () => this.importActiveFileSkeleton();
+        createIconBtn('file-text', 'Export to Markdown Note').onclick = () => this.exportPinboard();
+        createIconBtn('layout-dashboard', 'Export to Canvas').onclick = () => this.exportCanvas();
 
-        // 1. Primer par: Note y Canvas
-        // --- FILA 1: Note y Canvas ---
-        const exportRow1 = topControls.createDiv();
-        exportRow1.style.display = 'flex';
-        exportRow1.style.gap = '5px';
-        exportRow1.style.marginBottom = '5px'; // Separación con la fila de abajo
-
-        const exportBtn = exportRow1.createEl('button', { text: '📝 Note', title: 'Export to Markdown Note' });
-        exportBtn.style.flex = '1';
-        exportBtn.style.backgroundColor = 'var(--interactive-accent)';
-        exportBtn.style.color = 'var(--text-on-accent)';
-        exportBtn.style.border = 'none';
-        exportBtn.style.cursor = 'pointer';
-        exportBtn.onclick = () => this.exportPinboard();
-
-        const exportCanvasBtn = exportRow1.createEl('button', { text: '🎨 Canvas', title: 'Export to Canvas' });
-        exportCanvasBtn.style.flex = '1';
-        exportCanvasBtn.style.backgroundColor = 'var(--color-purple)'; 
-        exportCanvasBtn.style.color = '#fff';
-        exportCanvasBtn.style.border = 'none';
-        exportCanvasBtn.style.cursor = 'pointer';
-        exportCanvasBtn.onclick = () => this.exportCanvas();
-
-        // --- FILA 2: Clear y Auto-Paste ---
-        const exportRow2 = topControls.createDiv();
-        exportRow2.style.display = 'flex';
-        exportRow2.style.gap = '5px';
-
-        const clearBoardBtn = exportRow2.createEl('button', { text: '🗑️ Clear', title: 'Clear Board' });
-        clearBoardBtn.style.flex = '1';
-        clearBoardBtn.onclick = () => { 
+        const clearBtn = createIconBtn('trash-2', 'Clear Board');
+        clearBtn.onmouseenter = () => { clearBtn.style.backgroundColor = 'var(--background-modifier-error-hover)'; clearBtn.style.color = 'var(--text-error)'; };
+        clearBtn.onclick = () => { 
             this.pinboardItems = []; 
             this.applyFiltersAndRender(); 
             new Notice('Board cleared!');
         };
 
-        const autoPasteBtn = exportRow2.createEl('button', { text: this.autoPasteInterval ? '⏸ Auto ON' : '▶ Auto OFF', title: 'Auto-add copied text to Board' });
-        autoPasteBtn.style.flex = '1';
-        autoPasteBtn.style.backgroundColor = this.autoPasteInterval ? 'var(--color-green)' : '';
-        autoPasteBtn.style.color = this.autoPasteInterval ? '#fff' : '';
-        autoPasteBtn.style.border = 'none';
+        // Grupo derecho: Botón Inteligente de Auto-Paste
+        const autoPasteBtn = toolbarRow.createEl('button', { title: 'Auto-add copied text to Board' });
+        autoPasteBtn.style.height = '28px';
+        autoPasteBtn.style.padding = '0 10px';
+        autoPasteBtn.style.display = 'flex';
+        autoPasteBtn.style.alignItems = 'center';
+        autoPasteBtn.style.gap = '6px';
+        autoPasteBtn.style.fontSize = '0.8em';
+        autoPasteBtn.style.border = '1px solid var(--background-modifier-border)';
+        autoPasteBtn.style.borderRadius = '4px';
+        autoPasteBtn.style.boxShadow = 'none';
         autoPasteBtn.style.cursor = 'pointer';
+
+        const updateAutoBtn = () => {
+            autoPasteBtn.empty();
+            if (this.autoPasteInterval) {
+                setIcon(autoPasteBtn.createSpan(), 'pause');
+                autoPasteBtn.createSpan({ text: 'Auto' });
+                autoPasteBtn.style.backgroundColor = 'var(--color-green)';
+                autoPasteBtn.style.color = '#fff';
+                autoPasteBtn.style.borderColor = 'var(--color-green)';
+            } else {
+                setIcon(autoPasteBtn.createSpan(), 'play');
+                autoPasteBtn.createSpan({ text: 'Auto' });
+                autoPasteBtn.style.backgroundColor = 'transparent';
+                autoPasteBtn.style.color = 'var(--text-muted)';
+                autoPasteBtn.style.borderColor = 'var(--background-modifier-border)';
+            }
+        };
+        updateAutoBtn(); // Pintar estado inicial
+
         autoPasteBtn.onclick = async () => {
             if (this.autoPasteInterval) {
                 window.clearInterval(this.autoPasteInterval);
@@ -1180,80 +1667,8 @@ class CornellNotesView extends ItemView {
                 }, 1000);
                 new Notice("🤖 Auto-Paste ON! Copy text to see it appear.");
             }
-            this.applyFiltersAndRender(); 
+            updateAutoBtn(); // Actualiza solo el botón, sin parpadeos de pantalla
         };
-
-        const titleRow = topControls.createDiv();
-        titleRow.style.display = 'flex';
-        titleRow.style.gap = '5px';
-
-        const titleInput = titleRow.createEl('input', { type: 'text', placeholder: 'Add text (# for titles, - for children)' });
-        titleInput.style.flexGrow = '1';
-
-        const addTitleBtn = titleRow.createEl('button', { text: '➕' });
-        addTitleBtn.onclick = () => {
-            const val = titleInput.value.trim();
-            if (val) {
-                let newItem: MarginaliaItem;
-                let isManualHyphen = false; // Variable para saber si el usuario usó la sintaxis de guiones
-
-                if (val.startsWith('#')) {
-                    newItem = { text: val, rawText: val, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isTitle: true };
-                } else {
-                    // 🧠 NUEVA LÓGICA: Detección de guiones para indentación manual
-                    const dashMatch = val.match(/^(-+)\s*(.*)/);
-                    let cleanText = val;
-                    let manualIndent = 0;
-
-                    if (dashMatch) {
-                        isManualHyphen = true;
-                        manualIndent = dashMatch[1].length; // Cuenta cuántos '-' pusiste
-                        cleanText = dashMatch[2] || "Empty node"; // Se queda con el texto sin los guiones
-                    }
-
-                    newItem = { 
-                        text: cleanText, 
-                        rawText: cleanText, 
-                        color: 'transparent', 
-                        file: null as any, 
-                        line: -1, 
-                        blockId: null, 
-                        outgoingLinks: [], 
-                        isCustom: true, 
-                        indentLevel: manualIndent 
-                    };
-                }
-
-                // 🧠 INSERCIÓN CONTEXTUAL (Mantenemos la magia anterior)
-                if (this.targetInsertIndex !== null && this.targetInsertIndex >= 0) {
-                    if (!newItem.isTitle) {
-                        // Si NO usaste guiones manuales, hereda del padre (Alt+Enter o Enter)
-                        if (!isManualHyphen) {
-                            const parentIndent = this.pinboardItems[this.targetInsertIndex].indentLevel || 0;
-                            newItem.indentLevel = this.targetInsertAsChild ? parentIndent + 1 : parentIndent;
-                        }
-                    }
-                    // Lo inyectamos justo debajo
-                    this.pinboardItems.splice(this.targetInsertIndex + 1, 0, newItem);
-                    this.targetInsertIndex = null; // Reseteamos la memoria
-                } else {
-                    // Si no hay contexto, va al final del board
-                    this.pinboardItems.push(newItem);
-                }
-
-                titleInput.value = ''; // Limpiamos la barra
-                this.applyFiltersAndRender(); 
-
-                // 🎯 RECUPERAR EL FOCO (Tu ametralladora)
-                setTimeout(() => {
-                    const newInput = container.querySelector('input[placeholder*="Add text"]') as HTMLInputElement;
-                    if (newInput) newInput.focus();
-                }, 50);
-            }
-        };
-        titleInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') addTitleBtn.click();
-        });
 
         if (this.pinboardItems.length === 0) {
             container.createEl('p', { text: 'Your Board is empty. Paste a skeleton, add nodes, or pin notes!', cls: 'cornell-sidebar-empty' });
@@ -1265,7 +1680,6 @@ class CornellNotesView extends ItemView {
 
         this.pinboardItems.forEach((item, index) => {
             let currentIndex = index; // 🩹 PARCHE 1: Le devolvemos la variable a la mitad de abajo del código
-            
             
             let itemWrapper = listContainer.createDiv();
             itemWrapper.setAttr('draggable', 'true');
@@ -1319,14 +1733,13 @@ class CornellNotesView extends ItemView {
             });
 
             // 🚶 NAVEGACIÓN BÁSICA (Arriba/Abajo) Y HOVER POR TECLADO (H/Escape)
-            // 🚶 NAVEGACIÓN BÁSICA (Arriba/Abajo) Y HOVER POR TECLADO (H/Escape)
             itemWrapper.addEventListener('keydown', (e) => {
                 // 1. PRIMERO PROCESAMOS EL ENTER (Con o sin ALT)
                 if (e.key === 'Enter') {
                     e.preventDefault(); e.stopPropagation();
                     this.targetInsertIndex = currentIndex;
                     this.targetInsertAsChild = e.altKey; // Guardamos si usó Alt para hacerlo hijo
-                    titleInput.focus();
+                    if (this.sliderIdeaInput) this.sliderIdeaInput.focus();
                     return; // Cortamos aquí para que no evalúe lo de abajo
                 }
 
@@ -1352,9 +1765,6 @@ class CornellNotesView extends ItemView {
                     }   
                 }
             });
-
-            // --- RENDERIZADO INTERNO ---
-            // (AQUÍ SIGUE EL RESTO DE TU CÓDIGO NORMAL: if (item.isTitle)... )
 
             // --- RENDERIZADO INTERNO ---
             if (item.isTitle) {
@@ -1435,7 +1845,9 @@ class CornellNotesView extends ItemView {
         if (this.pinboardItems.length === 0) return;
         // @ts-ignore
         const dateStr = window.moment().format('YYYY-MM-DD_HH-mm-ss');
-        const fileName = `Pinboard_${dateStr}.md`;
+        const folder = this.plugin.settings.pinboardFolder.trim();
+        await this.plugin.ensureFolderExists(folder);
+        const fileName = folder ? `${folder}/Pinboard_${dateStr}.md` : `Pinboard_${dateStr}.md`;
         // @ts-ignore
         let content = `# ● Pinboard Session\n*Exported on: ${window.moment().format('YYYY-MM-DD HH:mm')}*\n\n---\n\n`;
 
@@ -1548,7 +1960,9 @@ class CornellNotesView extends ItemView {
 
         // @ts-ignore
         const dateStr = window.moment().format('YYYY-MM-DD_HH-mm-ss');
-        const fileName = `EvidenceBoard_${dateStr}.canvas`;
+        const folder = this.plugin.settings.canvasFolder.trim();
+        await this.plugin.ensureFolderExists(folder);
+        const fileName = folder ? `${folder}/EvidenceBoard_${dateStr}.canvas` : `EvidenceBoard_${dateStr}.canvas`;
 
         const nodes: any[] = [];
         const edges: any[] = [];
@@ -2621,7 +3035,31 @@ class CornellSettingTab extends PluginSettingTab {
         });
         new Setting(containerEl).addButton(b => b.setButtonText('Add Tag').onClick(async () => { this.plugin.settings.tags.push({ prefix: 'New', color: '#888' }); await this.plugin.saveSettings(); this.display(); }));
         
+        containerEl.createEl('h3', { text: 'File & Output Management' });
+
+        // 📁 NUEVO AJUSTE PARA ZK
+        new Setting(containerEl)
+            .setName('Zettelkasten Folder')
+            .setDesc('Where should your ZK notes be created? (Leave empty for root)')
+            .addText(t => t.setValue(this.plugin.settings.zkFolder).onChange(async v => { this.plugin.settings.zkFolder = v; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName('Doodles Folder')
+            .setDesc('Where should your hand-drawn images be saved? (Leave empty for root)')
+            .addText(t => t.setValue(this.plugin.settings.doodleFolder).onChange(async v => { this.plugin.settings.doodleFolder = v; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName('Evidence Boards Folder')
+            .setDesc('Where should your Canvas files be exported?')
+            .addText(t => t.setValue(this.plugin.settings.canvasFolder).onChange(async v => { this.plugin.settings.canvasFolder = v; await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+            .setName('Pinboards Folder')
+            .setDesc('Where should your exported Pinboard Markdown files go?')
+            .addText(t => t.setValue(this.plugin.settings.pinboardFolder).onChange(async v => { this.plugin.settings.pinboardFolder = v; await this.plugin.saveSettings(); }));
+
         containerEl.createEl('h3', { text: 'Advanced' });
+        new Setting(containerEl).setName('Ignored Folders').addTextArea(t => t.setValue(this.plugin.settings.ignoredFolders).onChange(async v => { this.plugin.settings.ignoredFolders = v; await this.plugin.saveSettings(); this.plugin.app.workspace.updateOptions(); }));
         new Setting(containerEl).setName('Ignored Folders').addTextArea(t => t.setValue(this.plugin.settings.ignoredFolders).onChange(async v => { this.plugin.settings.ignoredFolders = v; await this.plugin.saveSettings(); this.plugin.app.workspace.updateOptions(); }));
     }
 }
@@ -2631,6 +3069,22 @@ export default class CornellMarginalia extends Plugin {
     settings!: CornellSettings;
     activeRecallMode: boolean = false; 
     ribbonIcon!: HTMLElement;
+
+    // 📁 MOTOR DE CREACIÓN DE CARPETAS
+    async ensureFolderExists(folderPath: string) {
+        if (!folderPath || folderPath === "/" || folderPath.trim() === "") return;
+        const normalizedPath = folderPath.replace(/\\/g, '/');
+        const folders = normalizedPath.split('/');
+        let currentPath = "";
+        for (const folder of folders) {
+            if (!folder) continue;
+            currentPath = currentPath === "" ? folder : `${currentPath}/${folder}`;
+            const folderAbstract = this.app.vault.getAbstractFileByPath(currentPath);
+            if (!folderAbstract) {
+                await this.app.vault.createFolder(currentPath);
+            }
+        }
+    }
 
     async onload() {
         await this.loadSettings();
@@ -2788,7 +3242,7 @@ export default class CornellMarginalia extends Plugin {
             }
         });    
 
-        // 🚀 COMANDO 7: Foco en la caja de texto del Pinboard (Alt+A)
+        // 🚀 COMANDO 7 (ARREGLADO): Foco en el Pinboard (Alt+A)
         this.addCommand({
             id: 'cornell-focus-pinboard-input',
             name: 'Pinboard: Focus Add Text Input',
@@ -2797,18 +3251,40 @@ export default class CornellMarginalia extends Plugin {
                 const leaves = this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE);
                 if (leaves.length > 0) {
                     const view = leaves[0].view as CornellNotesView;
-                    // Si no estamos en el Pinboard, cambiamos a él primero
                     if (view.currentTab !== 'pinboard') {
                         view.currentTab = 'pinboard';
                         view.renderUI();
                         view.applyFiltersAndRender();
                     }
-                    // Esperamos un instante a que se dibuje la caja y la enfocamos
                     setTimeout(() => {
-                        const input = view.containerEl.querySelector('input[placeholder*="Add text"]') as HTMLInputElement;
-                        if (input) {
-                            input.focus();
-                        }
+                        // 🩹 Arreglo: Ahora busca el textarea en lugar del viejo input
+                        const input = view.containerEl.querySelector('textarea.cornell-qc-textarea') as HTMLTextAreaElement;
+                        if (input) input.focus();
+                    }, 50);
+                } else {
+                    new Notice("Open the Marginalia Explorer first.");
+                }
+            }
+        });
+
+        // 🚀 COMANDO 8 (NUEVO): Foco en OmniCapture (Alt+C)
+        this.addCommand({
+            id: 'cornell-focus-omnicapture-input',
+            name: 'Focus Omni-Capture Input (Sidebar)',
+            hotkeys: [{ modifiers: ['Alt'], key: 'c' }], 
+            callback: () => {
+                const leaves = this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE);
+                if (leaves.length > 0) {
+                    const view = leaves[0].view as CornellNotesView;
+                    // Si estamos en el Board, cambiamos a "Current" para ver el OmniCapture de Notas
+                    if (view.currentTab === 'pinboard') {
+                        view.currentTab = 'current';
+                        view.renderUI();
+                        view.scanNotes();
+                    }
+                    setTimeout(() => {
+                        const input = view.containerEl.querySelector('textarea.cornell-qc-textarea') as HTMLTextAreaElement;
+                        if (input) input.focus();
                     }, 50);
                 } else {
                     new Notice("Open the Marginalia Explorer first.");
