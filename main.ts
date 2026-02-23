@@ -1187,7 +1187,7 @@ class CornellNotesView extends ItemView {
         titleRow.style.display = 'flex';
         titleRow.style.gap = '5px';
 
-        const titleInput = titleRow.createEl('input', { type: 'text', placeholder: 'Add text (Use # for titles)' });
+        const titleInput = titleRow.createEl('input', { type: 'text', placeholder: 'Add text (# for titles, - for children)' });
         titleInput.style.flexGrow = '1';
 
         const addTitleBtn = titleRow.createEl('button', { text: '➕' });
@@ -1195,32 +1195,56 @@ class CornellNotesView extends ItemView {
             const val = titleInput.value.trim();
             if (val) {
                 let newItem: MarginaliaItem;
+                let isManualHyphen = false; // Variable para saber si el usuario usó la sintaxis de guiones
+
                 if (val.startsWith('#')) {
                     newItem = { text: val, rawText: val, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isTitle: true };
                 } else {
-                    newItem = { text: val, rawText: val, color: 'transparent', file: null as any, line: -1, blockId: null, outgoingLinks: [], isCustom: true, indentLevel: 0 };
+                    // 🧠 NUEVA LÓGICA: Detección de guiones para indentación manual
+                    const dashMatch = val.match(/^(-+)\s*(.*)/);
+                    let cleanText = val;
+                    let manualIndent = 0;
+
+                    if (dashMatch) {
+                        isManualHyphen = true;
+                        manualIndent = dashMatch[1].length; // Cuenta cuántos '-' pusiste
+                        cleanText = dashMatch[2] || "Empty node"; // Se queda con el texto sin los guiones
+                    }
+
+                    newItem = { 
+                        text: cleanText, 
+                        rawText: cleanText, 
+                        color: 'transparent', 
+                        file: null as any, 
+                        line: -1, 
+                        blockId: null, 
+                        outgoingLinks: [], 
+                        isCustom: true, 
+                        indentLevel: manualIndent 
+                    };
                 }
 
-                // 🧠 INSERCIÓN CONTEXTUAL: Si venimos de presionar Enter en un nodo
+                // 🧠 INSERCIÓN CONTEXTUAL (Mantenemos la magia anterior)
                 if (this.targetInsertIndex !== null && this.targetInsertIndex >= 0) {
-                    // Si no es un título, hereda la sangría (indentLevel) del padre
                     if (!newItem.isTitle) {
-                        const parentIndent = this.pinboardItems[this.targetInsertIndex].indentLevel || 0;
-                        // Si presionó Alt+Enter, le sumamos 1 nivel. Si fue Enter normal, hereda el nivel.
-                        newItem.indentLevel = this.targetInsertAsChild ? parentIndent + 1 : parentIndent;
+                        // Si NO usaste guiones manuales, hereda del padre (Alt+Enter o Enter)
+                        if (!isManualHyphen) {
+                            const parentIndent = this.pinboardItems[this.targetInsertIndex].indentLevel || 0;
+                            newItem.indentLevel = this.targetInsertAsChild ? parentIndent + 1 : parentIndent;
+                        }
                     }
-                    // Lo inyectamos justo debajo (índice + 1)
+                    // Lo inyectamos justo debajo
                     this.pinboardItems.splice(this.targetInsertIndex + 1, 0, newItem);
                     this.targetInsertIndex = null; // Reseteamos la memoria
                 } else {
-                    // Si no, lo manda al fondo como siempre
+                    // Si no hay contexto, va al final del board
                     this.pinboardItems.push(newItem);
                 }
 
                 titleInput.value = ''; // Limpiamos la barra
                 this.applyFiltersAndRender(); 
 
-                // 🎯 RECUPERAR EL FOCO: Buscamos la nueva caja de texto recién dibujada y le devolvemos el cursor
+                // 🎯 RECUPERAR EL FOCO (Tu ametralladora)
                 setTimeout(() => {
                     const newInput = container.querySelector('input[placeholder*="Add text"]') as HTMLInputElement;
                     if (newInput) newInput.focus();
