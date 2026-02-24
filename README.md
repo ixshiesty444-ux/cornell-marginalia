@@ -259,5 +259,9 @@ If you find this plugin useful for your studies, consider buying me a coffee! It
 ## Examples
 
 <p align="center">
-  <img src="assets/marginalia final.png" width="600" title="Marginalia">
+  <img src="assets/this is marginalia.png" width="600" title="Marginalia">
+</p>
+
+<p align="center">
+  <img src="assets/this is marginalia2.png" width="600" title="Marginalia">
 </p>
