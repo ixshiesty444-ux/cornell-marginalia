@@ -667,18 +667,36 @@ class OmniCaptureModal extends Modal {
     async saveCapture() {
         const thought = this.thoughtInput.value.trim();
         const context = this.clipboardInput.value.trim();
-        const destName = this.destinationInput.value.trim() || "Marginalia Inbox";
+        let rawDestInput = this.destinationInput.value.trim() || "Marginalia Inbox";
+        
+        // 🛡️ ESCUDO ANTI-CADENAS
+        let cleanDestName = rawDestInput.replace(/^\d{12,14}\s*-\s*/, '').trim();
+        if (!cleanDestName) cleanDestName = "Marginalia Inbox";
+
+        let finalDestName = cleanDestName;
+
+        // 🧠 APLICAMOS EL MODO ZK AL MODAL PRINCIPAL
+        if (this.plugin.settings.zkMode) {
+            // @ts-ignore
+            const zkId = window.moment().format('YYYYMMDDHHmmss');
+            if (cleanDestName !== "Marginalia Inbox") {
+                finalDestName = `${zkId} - ${cleanDestName}`;
+            } else {
+                finalDestName = zkId;
+            }
+        }
         
         if (!thought && !context && !this.hasDoodle && !this.clipboardImageData) {
             new Notice("Capture is empty!");
             return;
         }
 
-        // 🧠 ACTUALIZAR MEMORIA (Destino, Texto e Imagen)
-        if (this.plugin.settings.lastOmniDestination !== destName) {
-            this.plugin.settings.lastOmniDestination = destName;
+        // 🧠 ACTUALIZAR MEMORIA (Guardamos el destino LIMPIO)
+        if (this.plugin.settings.lastOmniDestination !== cleanDestName) {
+            this.plugin.settings.lastOmniDestination = cleanDestName;
             await this.plugin.saveSettings();
         }
+        
         OmniCaptureModal.lastCapturedContext = context;
         OmniCaptureModal.lastCapturedImageLength = this.clipboardImageData ? this.clipboardImageData.byteLength : 0;
 
@@ -711,22 +729,20 @@ class OmniCaptureModal extends Modal {
             const dateStr = window.moment().format('YYYYMMDD_HHmmss');
             const fileName = `doodle_${dateStr}.png`;
             const folder = this.plugin.settings.doodleFolder.trim();
-        let attachmentPath = fileName;
-        if (folder) {
-            await this.plugin.ensureFolderExists(folder);
-            attachmentPath = `${folder}/${fileName}`;
-        } else {
-            try {
-                // @ts-ignore
-                attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
-            } catch (e) { attachmentPath = fileName; }
-        }
-            try {
-                // @ts-ignore
-                attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
-            } catch (e) {
-                attachmentPath = fileName;
+            let attachmentPath = fileName;
+            
+            if (folder) {
+                await this.plugin.ensureFolderExists(folder);
+                attachmentPath = `${folder}/${fileName}`;
+            } else {
+                try {
+                    // @ts-ignore
+                    attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
+                } catch (e) { 
+                    attachmentPath = fileName; 
+                }
             }
+            
             await this.app.vault.createBinary(attachmentPath, bytes.buffer);
             const actualFileName = attachmentPath.split('/').pop();
             doodleSyntax = `img:[[${actualFileName}]]`; 
@@ -737,33 +753,39 @@ class OmniCaptureModal extends Modal {
         if (doodleSyntax) marginaliaContent += `${doodleSyntax}`;
 
         let finalMd = "\n";
-        
         if (marginaliaContent.trim()) {
             finalMd += `%%> ${marginaliaContent.trim()} %%\n`;
         }
-        
         if (context) {
             finalMd += `${context}\n`;
         }
         if (contextImageSyntax) {
             finalMd += `${contextImageSyntax}\n`;
         }
-        
         finalMd += `\n---\n`;
 
-        // 🧠 LA CURA: Buscar en toda la bóveda usando el motor nativo de enlaces, sin importar la carpeta
-        let file = this.app.metadataCache.getFirstLinkpathDest(destName, "");
+        // 4. INYECCIÓN BÚSQUEDA GLOBAL
+        let file = this.app.metadataCache.getFirstLinkpathDest(finalDestName, "");
 
         try {
             if (file instanceof TFile) {
-                // Si el archivo existe en alguna parte, le añadimos el texto
                 await this.app.vault.append(file, finalMd);
             } else {
-                // Si realmente no existe en ninguna carpeta, lo creamos en la raíz
-                const fileName = destName.endsWith(".md") ? destName : `${destName}.md`;
-                await this.app.vault.create(fileName, `# 📥 ${destName}\n` + finalMd);
+                let fileName = finalDestName.endsWith(".md") ? finalDestName : `${finalDestName}.md`;
+                
+                // 📁 MAGIA DE CARPETA ZK TAMBIÉN AQUÍ
+                if (this.plugin.settings.zkMode) {
+                    const zkFolderPath = this.plugin.settings.zkFolder.trim();
+                    if (zkFolderPath) {
+                        await this.plugin.ensureFolderExists(zkFolderPath);
+                        fileName = `${zkFolderPath}/${fileName}`;
+                    }
+                    await this.app.vault.create(fileName, `# 🗃️ ${finalDestName}\n` + finalMd);
+                } else {
+                    await this.app.vault.create(fileName, `# 📥 ${finalDestName}\n` + finalMd);
+                }
             }
-            new Notice(`✅ Capture injected into ${destName}`);
+            new Notice(`✅ Capture injected into ${finalDestName}`);
             this.close();
         } catch (error) {
             new Notice("Error saving capture. Check console.");
@@ -775,6 +797,9 @@ class OmniCaptureModal extends Modal {
         this.contentEl.empty();
     }
 }
+
+  
+
 
 // 🎨 MODAL AUXILIAR PARA EL OMNI-CAPTURE LATERAL
 class SidebarDoodleModal extends Modal {
@@ -1198,21 +1223,25 @@ class CornellNotesView extends ItemView {
             submitBtn.classList.add('cornell-qc-submit');
             setIcon(submitBtn, 'zap');
 
+            
             // 🧠 EL MOTOR DEFINITIVO
             const saveCapture = async () => {
                 const thought = this.sliderIdeaInput.value.trim();
-                let destNameInput = this.sliderDestInput.value.trim() || "Marginalia Inbox";
-                let finalDestName = destNameInput;
+                let rawDestInput = this.sliderDestInput.value.trim() || "Marginalia Inbox";
 
-                // 🧠 MAGIA ZK: Genera un ID limpio de 12 dígitos (YYYYMMDDHHmmss)
+                // 🛡️ ESCUDO ANTI-CADENAS: Si el texto ya empieza con un ID viejo (12 a 14 números + guion), se lo quitamos.
+                let cleanDestName = rawDestInput.replace(/^\d{12,14}\s*-\s*/, '').trim();
+                if (!cleanDestName) cleanDestName = "Marginalia Inbox";
+
+                let finalDestName = cleanDestName;
+
+                // 🧠 MAGIA ZK: Genera un ID limpio de 14 dígitos (YYYYMMDDHHmmss)
                 if (this.plugin.settings.zkMode) {
                     // @ts-ignore
                     const zkId = window.moment().format('YYYYMMDDHHmmss');
                     
-                    // Si el usuario escribió un título en Dest (ej. "Dioptría"), lo junta: "202602231845 - Dioptría"
-                    // Si la caja estaba vacía o decía "Marginalia Inbox", simplemente usa el ID pelado: "202602231845"
-                    if (destNameInput && destNameInput !== "Marginalia Inbox") {
-                        finalDestName = `${zkId} - ${destNameInput}`;
+                    if (cleanDestName !== "Marginalia Inbox") {
+                        finalDestName = `${zkId} - ${cleanDestName}`;
                     } else {
                         finalDestName = zkId;
                     }
@@ -1243,7 +1272,6 @@ class CornellNotesView extends ItemView {
                         }
                     }
                 } catch (err) {
-                    // Fallback si `read()` falla por permisos
                     try {
                         const clipText = await navigator.clipboard.readText();
                         if (clipText && clipText !== CornellNotesView.lastCapturedContext) {
@@ -1283,11 +1311,9 @@ class CornellNotesView extends ItemView {
                     let attachmentPath = fileName;
                     
                     if (folder) {
-                        // Si el usuario definió una carpeta, la creamos y apuntamos allí
                         await this.plugin.ensureFolderExists(folder);
                         attachmentPath = `${folder}/${fileName}`;
                     } else {
-                        // Si está vacío, usamos la ruta por defecto de Obsidian
                         try {
                             // @ts-ignore
                             attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
@@ -1301,7 +1327,7 @@ class CornellNotesView extends ItemView {
                     doodleSyntax = `img:[[${actualFileName}]]`; 
                 }
 
-                // 3. ENSAMBLAJE DE MARKDOWN (Idéntico a tu lógica original)
+                // 3. ENSAMBLAJE DE MARKDOWN
                 let marginaliaContent = "";
                 if (thought) marginaliaContent += `${thought} `; 
                 if (doodleSyntax) marginaliaContent += `${doodleSyntax}`;
@@ -1326,7 +1352,7 @@ class CornellNotesView extends ItemView {
                     } else {
                         let fileName = finalDestName.endsWith(".md") ? finalDestName : `${finalDestName}.md`;
                         
-                        // 📁 MAGIA DE CARPETA ZK: Si es ZK, lo enviamos a su propia carpeta
+                        // 📁 MAGIA DE CARPETA ZK
                         if (this.plugin.settings.zkMode) {
                             const zkFolderPath = this.plugin.settings.zkFolder.trim();
                             if (zkFolderPath) {
@@ -1340,21 +1366,20 @@ class CornellNotesView extends ItemView {
                     }
                     
                     // 5. LIMPIEZA INTELIGENTE
-                new Notice(`⚡ Capture injected into ${finalDestName}`);
-                this.sliderIdeaInput.value = '';
-                this.pendingDoodleData = null;
-                this.pendingClipboardImageData = null;
-                doodleBtn.style.color = "var(--text-muted)";
+                    new Notice(`⚡ Capture injected into ${finalDestName}`);
+                    this.sliderIdeaInput.value = '';
+                    this.sliderDestInput.value = cleanDestName; // 👈 Resetea visualmente el input para quitar la basura
+                    this.pendingDoodleData = null;
+                    this.pendingClipboardImageData = null;
+                    doodleBtn.style.color = "var(--text-muted)";
 
-                // 🧠 MAGIA: Solo actualizamos la memoria si NO estamos en modo ZK.
-                // Así, la caja "Dest" sigue recordando la carpeta base (ej. "Inbox"),
-                // y el ZK le pega un ID nuevo y limpio a cada captura.
-                if (!this.plugin.settings.zkMode && this.plugin.settings.lastOmniDestination !== destNameInput) {
-                    this.plugin.settings.lastOmniDestination = destNameInput;
-                    await this.plugin.saveSettings();
-                }
+                    // 🧠 Memoria: Guardamos el destino limpio siempre, curando la memoria corrupta.
+                    if (this.plugin.settings.lastOmniDestination !== cleanDestName) {
+                        this.plugin.settings.lastOmniDestination = cleanDestName;
+                        await this.plugin.saveSettings();
+                    }
 
-                this.applyFiltersAndRender();
+                    this.applyFiltersAndRender();
                 } catch (error) {
                     new Notice("❌ Error saving capture. Check console.");
                     console.error(error);
