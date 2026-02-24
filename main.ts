@@ -3824,14 +3824,20 @@ export default class CornellMarginalia extends Plugin {
         let content = editor.getValue();
         let modified = false;
 
-        const newContent = content.replace(/%%>(.*?)%%/g, (match, noteContent) => {
+        // Necesitamos saber qué archivo está activo para resolver rutas relativas de imágenes
+        const activeFile = this.app.workspace.getActiveFile();
+        const sourcePath = activeFile ? activeFile.path : "";
+
+        const newContent = content.replace(/%%([><])(.*?)%%/g, (match, direction, noteContent) => {
             modified = true;
             let finalText = noteContent.trim();
             
+            // 1. Limpiar sintaxis de flashcards
             if (finalText.endsWith(';;')) {
                 finalText = finalText.slice(0, -2).trim();
             }
 
+            // 2. Extraer el color (Tags)
             let matchedColor = 'var(--text-accent)';
             for (const tag of this.settings.tags) {
                 if (finalText.startsWith(tag.prefix)) {
@@ -3841,13 +3847,40 @@ export default class CornellMarginalia extends Plugin {
                 }
             }
 
+            // 3. CAZADOR DE IMÁGENES: Convertir a HTML nativo
+            const imgRegex = /img:\s*\[\[(.*?)\]\]/gi;
+            let imgHtml = "";
+            
+            // 🛠️ FIX: Le decimos a TypeScript qué es el arreglo completo usando 'as'
+            const imgMatches = Array.from(finalText.matchAll(imgRegex)) as RegExpMatchArray[];
+            
+            imgMatches.forEach(m => {
+                const imgName = m[1].split('|')[0]; // Limpiamos si tiene tamaño (ej. imagen.png|200)
+                const file = this.app.metadataCache.getFirstLinkpathDest(imgName, sourcePath);
+                
+                if (file) {
+                    // Obtenemos la ruta real (app://local/...) que el exportador PDF sí entiende
+                    const imgSrc = this.app.vault.getResourcePath(file);
+                    imgHtml += `<img src="${imgSrc}" style="max-width: 100%; border-radius: 4px; margin-top: 5px; display: block;" />`;
+                }
+            });
+            
+            // Borramos la sintaxis de imagen del texto
+            finalText = finalText.replace(imgRegex, '').trim(); 
+
+            // 4. CAZADOR DE ENLACES: Borrar las conexiones "Thread" de la vista de impresión
+            const linkRegex = /(?<!!)\[\[(.*?)\]\]/g;
+            finalText = finalText.replace(linkRegex, '').trim();
+
             const safeOriginal = encodeURIComponent(match);
-            return `<span class="cornell-print-margin" data-original="${safeOriginal}" style="border-right: 3px solid ${matchedColor}; color: ${matchedColor};">${finalText}</span>`;
+            
+            // Ensamblamos el span con el texto limpio y las imágenes inyectadas
+            return `<span class="cornell-print-margin" data-original="${safeOriginal}" style="border-right: 3px solid ${matchedColor}; color: ${matchedColor};">${finalText}${imgHtml}</span>`;
         });
 
         if (modified) {
             editor.setValue(newContent);
-            new Notice("¡Nota preparada para imprimir! Exporta a PDF ahora.");
+            new Notice("¡Nota preparada para imprimir! Enlaces ocultos e imágenes procesadas.");
         } else {
             new Notice("No se encontraron marginalias para convertir.");
         }

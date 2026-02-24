@@ -265,7 +265,7 @@ body.cornell-active-recall-on .cornell-flashcard-target .cm-cornell-margin * {
 
 
 /* ======================================================
-   🖨️ SOPORTE PARA EXPORTACIÓN A PDF (INLINE & ABSOLUTE)
+   🖨️ SOPORTE PARA EXPORTACIÓN A PDF (VERSIÓN FLOAT BLINDADA)
    ====================================================== */
 
 @media print {
@@ -278,17 +278,21 @@ body.cornell-active-recall-on .cornell-flashcard-target .cm-cornell-margin * {
         padding-left: 28% !important; 
         page-break-inside: avoid !important;
         break-inside: avoid !important;
+        
+        /* 🛡️ LA VACUNA ANTI-DESBORDAMIENTO: 
+           Obliga al párrafo a crecer a lo alto para contener notas marginales muy largas */
+        display: flow-root !important; 
     }
 
-    /* 2. La Marginalia salta a la columna vacía */
+    /* 2. La Marginalia salta a la columna vacía usando floats */
     .cornell-print-margin {
-        position: absolute !important;
-        left: 0 !important;
-        /* top: 0 asegura que quede alineada con la primera línea del párrafo, 
-           sin importar dónde hayas puesto la nota */
-        top: 2px !important; 
+        float: left !important;
+        clear: left !important; /* Evita que las notas del mismo párrafo choquen */
         
-        width: 24% !important;
+        /* Tiramos la nota hacia el espacio vacío generado por el padding del padre */
+        margin-left: -38% !important; 
+        width: 35% !important;
+        
         display: block !important;
         text-align: right !important;
         padding-right: 10px !important;
