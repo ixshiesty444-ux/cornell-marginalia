@@ -890,6 +890,13 @@ input.cornell-search-bar:focus {
     background-color: var(--background-modifier-form-field);
 }
 
+/* 🛡️ ESCUDO ANTI-ROBO DE HOVER PARA LA BARRA LATERAL */
+/* Convierte las miniaturas en fantasmas para el ratón, permitiendo que la caja principal detecte el hover y muestre el texto de la nota */
+/* .cornell-sidebar-item-text .internal-embed,
+/*.cornell-sidebar-item-text img {
+/*    pointer-events: none !important;
+/* }
+
 /* ======================================================
    👻 CLASE PARA OCULTAR TEXTO CRUDO EN MODO EDICIÓN
    ====================================================== */

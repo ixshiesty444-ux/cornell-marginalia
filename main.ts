@@ -326,6 +326,13 @@ class DoodleModal extends Modal {
         this.modalEl.style.width = "80vw"; // Modal ancho para dibujar cómodo
         this.modalEl.style.maxWidth = "800px";
 
+        // --- ⚡ NUEVO: CAPTURE NOW (Ctrl+Enter para guardar) ---
+        this.scope.register(['Mod'], 'Enter', (e: KeyboardEvent) => {
+            e.preventDefault();
+            this.saveDoodle();
+        });
+        // --------------------------------------------------------
+
         contentEl.createEl("h3", { text: "✏️ Marginalia Doodle" });
 
         // 1. Crear el contenedor y el lienzo
@@ -348,6 +355,8 @@ class DoodleModal extends Modal {
         this.ctx.lineJoin = "round";
         this.ctx.strokeStyle = "#000000";
 
+        
+
         // 2. Lógica de Dibujo (Soporta Ratón y Tableta Gráfica)
         this.canvas.addEventListener("pointerdown", (e) => {
             this.isDrawing = true;
@@ -366,23 +375,60 @@ class DoodleModal extends Modal {
         this.canvas.addEventListener("pointerup", () => { this.isDrawing = false; });
         this.canvas.addEventListener("pointerout", () => { this.isDrawing = false; });
 
-        // 3. Botonera (Limpiar, Cancelar, Guardar)
+        // 3. Botonera (Herramientas + Cancelar/Guardar)
         const btnContainer = contentEl.createDiv();
         btnContainer.style.display = "flex";
         btnContainer.style.justifyContent = "space-between";
         btnContainer.style.marginTop = "15px";
 
-        const clearBtn = btnContainer.createEl("button", { text: "🗑️ Clear" });
+        // --- GRUPO IZQUIERDO: Herramientas nativas ---
+        const leftBtns = btnContainer.createDiv();
+        leftBtns.style.display = "flex";
+        leftBtns.style.gap = "8px";
+
+        // 1ro: CREAMOS LOS BOTONES
+        const penBtn = leftBtns.createEl("button", { cls: "mod-cta" });
+        setIcon(penBtn, "pencil");
+        penBtn.setAttribute("aria-label", "Pen");
+
+        const eraserBtn = leftBtns.createEl("button");
+        setIcon(eraserBtn, "eraser");
+        eraserBtn.setAttribute("aria-label", "Eraser");
+
+        const clearBtn = leftBtns.createEl("button");
+        setIcon(clearBtn, "trash-2");
+        clearBtn.setAttribute("aria-label", "Clear Canvas");
+
+        // 2do: LE ASIGNAMOS LOS CLICS (Ahora sí existen)
+        penBtn.onclick = (e) => {
+            e.preventDefault();
+            this.ctx.globalCompositeOperation = "source-over";
+            this.ctx.lineWidth = 3; 
+            penBtn.addClass("mod-cta");
+            eraserBtn.removeClass("mod-cta");
+        };
+
+        eraserBtn.onclick = (e) => {
+            e.preventDefault();
+            this.ctx.globalCompositeOperation = "destination-out"; 
+            this.ctx.lineWidth = 20; 
+            eraserBtn.addClass("mod-cta");
+            penBtn.removeClass("mod-cta");
+        };
+
         clearBtn.onclick = () => this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+        // --- GRUPO DERECHO: Acciones ---
         const rightBtns = btnContainer.createDiv();
         rightBtns.style.display = "flex";
         rightBtns.style.gap = "10px";
 
+        // 1. Botón Cancelar
         const cancelBtn = rightBtns.createEl("button", { text: "Cancel" });
         cancelBtn.onclick = () => this.close();
 
-        const saveBtn = rightBtns.createEl("button", { text: "💾 Save to Margin", cls: "mod-cta" });
+        // 2. Botón Guardar (Único y principal)
+        const saveBtn = rightBtns.createEl("button", { text: "Save to Margin", cls: "mod-cta" });
         saveBtn.style.backgroundColor = "var(--interactive-accent)";
         saveBtn.style.color = "var(--text-on-accent)";
         saveBtn.onclick = () => this.saveDoodle();
@@ -612,6 +658,8 @@ class OmniCaptureModal extends Modal {
         this.ctx.lineJoin = "round";
         this.ctx.strokeStyle = "#000000";
 
+        
+
         this.canvas.addEventListener("pointerdown", (e) => {
             this.isDrawing = true;
             this.hasDoodle = true;
@@ -627,6 +675,50 @@ class OmniCaptureModal extends Modal {
         });
         this.canvas.addEventListener("pointerup", () => { this.isDrawing = false; });
         this.canvas.addEventListener("pointerout", () => { this.isDrawing = false; });
+
+        this.canvas.addEventListener("pointerout", () => { this.isDrawing = false; });
+
+        // --- HERRAMIENTAS DEL ZENDOODLE (Nativas) ---
+        const doodleTools = this.canvasContainer.createDiv();
+        doodleTools.style.display = "flex";
+        doodleTools.style.gap = "8px";
+        doodleTools.style.marginTop = "10px";
+        doodleTools.style.paddingTop = "10px";
+        doodleTools.style.borderTop = "1px solid var(--background-modifier-border)";
+
+        const penBtn = doodleTools.createEl("button", { cls: "mod-cta" });
+        setIcon(penBtn, "pencil");
+        penBtn.setAttribute("aria-label", "Pen");
+
+        const eraserBtn = doodleTools.createEl("button");
+        setIcon(eraserBtn, "eraser");
+        eraserBtn.setAttribute("aria-label", "Eraser");
+
+        const clearBtn = doodleTools.createEl("button");
+        setIcon(clearBtn, "trash-2");
+        clearBtn.setAttribute("aria-label", "Clear Doodle");
+
+        penBtn.onclick = (e) => {
+            e.preventDefault();
+            this.ctx.globalCompositeOperation = "source-over";
+            this.ctx.lineWidth = 3;
+            penBtn.addClass("mod-cta");
+            eraserBtn.removeClass("mod-cta");
+        };
+
+        eraserBtn.onclick = (e) => {
+            e.preventDefault();
+            this.ctx.globalCompositeOperation = "destination-out";
+            this.ctx.lineWidth = 20;
+            eraserBtn.addClass("mod-cta");
+            penBtn.removeClass("mod-cta");
+        };
+
+        clearBtn.onclick = (e) => {
+            e.preventDefault();
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.hasDoodle = false;
+        };
 
         // 5. Botonera
         const btnContainer = contentEl.createDiv({ attr: { style: "display: flex; justify-content: space-between; margin-top: 20px;" } });
@@ -645,6 +737,9 @@ class OmniCaptureModal extends Modal {
         };
 
         const rightBtns = btnContainer.createDiv({ attr: { style: "display: flex; gap: 10px;" } });
+
+        
+
         const cancelBtn = rightBtns.createEl("button", { text: "Cancel" });
         cancelBtn.onclick = () => this.close();
 
@@ -807,9 +902,11 @@ class SidebarDoodleModal extends Modal {
     canvas!: HTMLCanvasElement;
     ctx!: CanvasRenderingContext2D;
     isDrawing: boolean = false;
-    onSave: (data: ArrayBuffer) => void;
+    
+    // 👇 Modificamos la firma para aceptar el parámetro instant
+    onSave: (data: ArrayBuffer, instant: boolean) => void;
 
-    constructor(app: App, onSave: (data: ArrayBuffer) => void) {
+    constructor(app: App, onSave: (data: ArrayBuffer, instant: boolean) => void) {
         super(app);
         this.onSave = onSave;
     }
@@ -819,6 +916,13 @@ class SidebarDoodleModal extends Modal {
         contentEl.empty();
         this.modalEl.style.width = "80vw";
         this.modalEl.style.maxWidth = "800px";
+
+        // --- ⚡ ATAJO CAPTURE NOW (Ctrl+Enter) ---
+        this.scope.register(['Mod'], 'Enter', (e: KeyboardEvent) => {
+            e.preventDefault();
+            this.attachDoodle(true); // Atajo de teclado dispara el rayo
+        });
+        // ----------------------------------------
 
         contentEl.createEl("h3", { text: "✏️ Omni-Capture Doodle" });
 
@@ -857,35 +961,84 @@ class SidebarDoodleModal extends Modal {
         this.canvas.addEventListener("pointerup", () => { this.isDrawing = false; });
         this.canvas.addEventListener("pointerout", () => { this.isDrawing = false; });
 
+        // --- BOTONERA ---
         const btnContainer = contentEl.createDiv();
         btnContainer.style.display = "flex";
         btnContainer.style.justifyContent = "space-between";
         btnContainer.style.marginTop = "15px";
 
-        const clearBtn = btnContainer.createEl("button", { text: "🗑️ Clear" });
+        // 1. Grupo Izquierdo (Herramientas Nativas)
+        const leftBtns = btnContainer.createDiv();
+        leftBtns.style.display = "flex";
+        leftBtns.style.gap = "8px";
+        
+        const penBtn = leftBtns.createEl("button", { cls: "mod-cta" });
+        setIcon(penBtn, "pencil");
+        penBtn.setAttribute("aria-label", "Pen");
+
+        const eraserBtn = leftBtns.createEl("button");
+        setIcon(eraserBtn, "eraser");
+        eraserBtn.setAttribute("aria-label", "Eraser");
+
+        const clearBtn = leftBtns.createEl("button");
+        setIcon(clearBtn, "trash-2");
+        clearBtn.setAttribute("aria-label", "Clear Canvas");
+
+        penBtn.onclick = (e) => {
+            e.preventDefault();
+            this.ctx.globalCompositeOperation = "source-over";
+            this.ctx.lineWidth = 3; 
+            penBtn.addClass("mod-cta");
+            eraserBtn.removeClass("mod-cta");
+        };
+
+        eraserBtn.onclick = (e) => {
+            e.preventDefault();
+            this.ctx.globalCompositeOperation = "destination-out"; 
+            this.ctx.lineWidth = 20; 
+            eraserBtn.addClass("mod-cta");
+            penBtn.removeClass("mod-cta");
+        };
+
         clearBtn.onclick = () => this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+        // 2. Grupo Derecho (Acciones)
         const rightBtns = btnContainer.createDiv({ attr: { style: "display: flex; gap: 10px;" } });
+        
+        // 1. Botón Cancelar (Izquierda del grupo)
         const cancelBtn = rightBtns.createEl("button", { text: "Cancel" });
         cancelBtn.onclick = () => this.close();
 
-        const saveBtn = rightBtns.createEl("button", { text: "✔️ Attach to Capture", cls: "mod-cta" });
-        saveBtn.style.backgroundColor = "var(--interactive-accent)";
-        saveBtn.style.color = "var(--text-on-accent)";
-        
-        saveBtn.onclick = () => {
-            const dataUrl = this.canvas.toDataURL("image/png");
-            const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
-            // Usa la misma función base64ToArrayBuffer de tu código original
-            const arrayBuffer = base64ToArrayBuffer(base64Data);
-            this.onSave(arrayBuffer);
-            this.close();
-        };
+        // 2. Botón Attach (Centro, ahora con color natural/secundario)
+        const saveBtn = rightBtns.createEl("button", { text: "✔️ Attach" });
+        saveBtn.title = "Attach image and keep writing";
+        saveBtn.onclick = () => this.attachDoodle(false);
+
+        // 3. Botón Rayo (Derecha, ahora resaltado como acción principal)
+        const zapBtn = rightBtns.createEl("button", { text: " Save", cls: "mod-cta" });
+        setIcon(zapBtn, "zap"); 
+        zapBtn.setAttribute("aria-label", "Save Entire Capture Now (Ctrl+Enter)");
+        // Aplicamos los estilos de acento visual al rayo
+        zapBtn.style.backgroundColor = "var(--interactive-accent)";
+        zapBtn.style.color = "var(--text-on-accent)";
+        zapBtn.style.display = "flex";
+        zapBtn.style.alignItems = "center";
+        zapBtn.style.gap = "4px";
+        zapBtn.onclick = () => this.attachDoodle(true);
     }
 
-    onClose() { this.contentEl.empty(); }
-}
+    attachDoodle(instant: boolean) {
+        const dataUrl = this.canvas.toDataURL("image/png");
+        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+        const arrayBuffer = base64ToArrayBuffer(base64Data); 
+        this.onSave(arrayBuffer, instant); // Le pasamos la orden a la barra lateral
+        this.close();
+    }
 
+    onClose() { 
+        this.contentEl.empty(); 
+    }
+}
 // --- VISTA LATERAL (EXPLORER) ESTÉTICA MINIMALISTA Y BLINDADA ●🧠 ---
 class CornellNotesView extends ItemView {
     plugin: CornellMarginalia;
@@ -899,6 +1052,13 @@ class CornellNotesView extends ItemView {
     searchQuery: string = '';
     activeColorFilters: Set<string> = new Set();
     cachedItems: MarginaliaItem[] = []; 
+
+    // 🚀 NUEVA MEMORIA RAM (Caché de Bóveda)
+    private vaultCache: Map<string, { mtime: number, items: MarginaliaItem[] }> = new Map();
+
+    // 📚 MEMORIA ZOTLIKE
+    isZotlikeMode: boolean = false;
+    activePdfName: string = "";
 
     draggedSidebarItems: MarginaliaItem[] | null = null; 
     isGroupedByContent: boolean = false; 
@@ -916,6 +1076,9 @@ class CornellNotesView extends ItemView {
     // HASTA ACA
     autoPasteInterval: number | null = null;
     lastClipboardText: string = "";
+    
+    // 🚀 NUEVA CACHÉ PARA OPTIMIZAR IMÁGENES
+    private imagePathCache: { [filename: string]: string } = {};
 
     // 🎨 VARIABLES DEL LIENZO INMORTAL (ZEN DOODLE)
     isZenMode: boolean = false;
@@ -959,21 +1122,56 @@ class CornellNotesView extends ItemView {
         topBar.style.justifyContent = 'space-between';
         topBar.style.alignItems = 'center';
 
-        const cancelBtn = topBar.createEl('button', { text: '← Back', title: 'Return to Board' });
+        // --- GRUPO IZQUIERDO (Atrás + Herramientas) ---
+        const leftGrp = topBar.createDiv({ attr: { style: 'display:flex; gap:6px; align-items:center;' } });
+        
+        const cancelBtn = leftGrp.createEl('button', { title: 'Return to Board' });
+        setIcon(cancelBtn, "arrow-left"); // Usamos icono en vez de texto para ahorrar espacio
         cancelBtn.style.boxShadow = 'none';
         cancelBtn.onclick = () => {
             this.isZenMode = false;
             this.applyFiltersAndRender();
         };
 
-        const rightGrp = topBar.createDiv({ attr: { style: 'display:flex; gap:10px;' } });
-        const clearBtn = rightGrp.createEl('button', { text: '🗑️', title: 'Clear Canvas' });
+        const penBtn = leftGrp.createEl('button', { cls: 'mod-cta', title: 'Pen' });
+        setIcon(penBtn, "pencil");
+
+        const eraserBtn = leftGrp.createEl('button', { title: 'Eraser' });
+        setIcon(eraserBtn, "eraser");
+
+        penBtn.onclick = () => {
+            if (this.zenCtx) {
+                this.zenCtx.globalCompositeOperation = "source-over";
+                this.zenCtx.lineWidth = 4; // Grosor original del Zen Doodle
+                penBtn.addClass("mod-cta");
+                eraserBtn.removeClass("mod-cta");
+            }
+        };
+
+        eraserBtn.onclick = () => {
+            if (this.zenCtx) {
+                this.zenCtx.globalCompositeOperation = "destination-out"; // Magia de borrado
+                this.zenCtx.lineWidth = 25; // Más grueso para borrar fácil en pantalla completa
+                eraserBtn.addClass("mod-cta");
+                penBtn.removeClass("mod-cta");
+            }
+        };
+
+        // --- GRUPO DERECHO (Limpiar + Guardar) ---
+        const rightGrp = topBar.createDiv({ attr: { style: 'display:flex; gap:6px;' } });
+        
+        const clearBtn = rightGrp.createEl('button', { title: 'Clear Canvas' });
+        setIcon(clearBtn, "trash-2"); // Icono nativo de basura
         clearBtn.style.boxShadow = 'none';
         clearBtn.onclick = () => {
             if (this.zenCanvasEl && this.zenCtx) {
                 this.zenCtx.clearRect(0, 0, this.zenCanvasEl.width, this.zenCanvasEl.height);
             }
         };
+
+        
+        // ⬇️ A partir de aquí tu código sigue normal:
+        // saveBtn.onclick = async () => { ... }
 
         const saveBtn = rightGrp.createEl('button', { text: '💾 Attach', cls: 'mod-cta', title: 'Save and add to Board' });
         saveBtn.style.backgroundColor = 'var(--interactive-accent)';
@@ -1328,11 +1526,18 @@ class CornellNotesView extends ItemView {
             doodleBtn.style.display = 'flex'; doodleBtn.style.alignItems = 'center'; doodleBtn.style.gap = '4px';
             setIcon(doodleBtn, 'palette');
             doodleBtn.createSpan({ text: 'Doodle' });
+            
+            // 👇 AQUÍ ESTÁ EL CAMBIO: Ahora recibe la orden de guardar al instante (isInstant)
             doodleBtn.onclick = () => { 
-                new SidebarDoodleModal(this.app, (arrayBuffer) => {
+                new SidebarDoodleModal(this.app, async (arrayBuffer, isInstant) => {
                     this.pendingDoodleData = arrayBuffer;
                     doodleBtn.style.color = "var(--color-green)"; // Confirmación visual
-                    new Notice("🎨 Doodle attached! Press ⚡ to save.");
+                    
+                    if (isInstant) {
+                        await saveCapture(); // ⚡ DISPARA EL GUARDADO FINAL AUTOMÁTICAMENTE
+                    } else {
+                        new Notice("🎨 Doodle attached! Press ⚡ to save.");
+                    }
                 }).open();
             };
 
@@ -1551,24 +1756,69 @@ class CornellNotesView extends ItemView {
         const contentDiv = this.containerEl.querySelector('.cornell-sidebar-content') as HTMLElement;
         if (!contentDiv) return;
         contentDiv.empty();
-        contentDiv.createEl('p', { text: 'Scanning vault...', cls: 'cornell-sidebar-empty' });
 
         const allItemsFlat: MarginaliaItem[] = []; 
         const defaultColor = 'var(--text-accent)'; 
 
         let filesToScan: TFile[] = [];
+        
+        // 🧠 RESET ZOTLIKE
+        this.isZotlikeMode = false;
+        this.activePdfName = "";
+        let activePdfBasename = "";
+
         if (this.currentTab === 'current') {
             const activeFile = this.plugin.app.workspace.getActiveFile();
-            if (activeFile) filesToScan.push(activeFile);
+            if (activeFile) {
+                if (activeFile.extension.toLowerCase() === 'pdf') {
+                    // 🎯 DETECCIÓN ZOTLIKE ACTIVADA
+                    this.isZotlikeMode = true;
+                    this.activePdfName = activeFile.name;
+                    activePdfBasename = activeFile.basename;
+                    
+                    filesToScan = this.plugin.app.vault.getMarkdownFiles();
+                    const ignoredPaths = this.plugin.settings.ignoredFolders.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                    filesToScan = filesToScan.filter(f => !ignoredPaths.some(p => f.path.startsWith(p)));
+                } else {
+                    filesToScan.push(activeFile);
+                }
+            } else {
+                contentDiv.createEl('p', { text: 'No active file.', cls: 'cornell-sidebar-empty' });
+                return;
+            }
         } else {
             filesToScan = this.plugin.app.vault.getMarkdownFiles();
             const ignoredPaths = this.plugin.settings.ignoredFolders.split(',').map(s => s.trim()).filter(s => s.length > 0);
             filesToScan = filesToScan.filter(f => !ignoredPaths.some(p => f.path.startsWith(p)));
         }
 
+        const baseEncoded = activePdfBasename.replace(/ /g, '%20');
+        const nameEncoded = this.activePdfName.replace(/ /g, '%20');
+
         for (const file of filesToScan) {
+            // 🎯 EL FILTRO ZOTLIKE DEFINITIVO: Evaluamos TODA la nota
+            if (this.isZotlikeMode) {
+                const fullContent = await this.plugin.app.vault.cachedRead(file);
+                // Si la nota entera NO menciona el PDF, la ignoramos sin procesarla
+                if (!fullContent.includes(this.activePdfName) && 
+                    !fullContent.includes(nameEncoded) && 
+                    !fullContent.includes(`[[${activePdfBasename}`) && 
+                    !fullContent.includes(`[[${baseEncoded}`)) {
+                    continue; 
+                }
+            }
+
+            // 🚀 1. CONSULTAR CACHÉ (Acelerador)
+            const cachedData = this.vaultCache.get(file.path);
+            if (cachedData && cachedData.mtime === file.stat.mtime) {
+                allItemsFlat.push(...cachedData.items);
+                continue;
+            }
+
+            // 🐢 2. LECTURA Y EXTRACCIÓN
             const content = await this.plugin.app.vault.cachedRead(file);
             const lines = content.split('\n');
+            const fileItems: MarginaliaItem[] = []; 
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -1579,20 +1829,8 @@ class CornellNotesView extends ItemView {
                     let noteContent = match[1].trim();
                     if (noteContent.endsWith(';;')) noteContent = noteContent.slice(0, -2).trim();
 
-                    // 🧠 TEXTO CRUDO: Necesario para que el Stitching no corrompa los enlaces
                     const rawTextForStitching = noteContent;
-
-                    // 🛡️ PURGAR IMÁGENES
-                    const imgRegex = /img:\s*\[\[(.*?)\]\]/gi;
-                    const hasImage = imgRegex.test(noteContent);
-                    let cleanText = noteContent.replace(imgRegex, '').trim();
-
-                    // 🛡️ CAZADOR DE ENLACES (Sin loops infinitos)
-                    const linkRegex = /(?<!!)\[\[(.*?)\]\]/g;
-                    const outgoingLinks: string[] = [];
-                    const linkMatches = Array.from(cleanText.matchAll(linkRegex));
-                    linkMatches.forEach(m => outgoingLinks.push(m[1]));
-                    cleanText = cleanText.replace(linkRegex, '').trim();
+                    let cleanText = noteContent;
 
                     let matchedColor = defaultColor;
                     for (const tag of this.plugin.settings.tags) {
@@ -1603,18 +1841,20 @@ class CornellNotesView extends ItemView {
                         }
                     }
 
-                    if (cleanText.length === 0) {
-                        if (hasImage) {
-                            cleanText = "🖼️ [Image]";
-                        } else {
-                            continue;
-                        }
-                    }
+                    cleanText = cleanText.replace(/img:\s*\[\[(.*?)\]\]/gi, '![[$1]]').trim();
+
+                    const linkRegex = /(?<!!)\[\[(.*?)\]\]/g;
+                    const outgoingLinks: string[] = [];
+                    const linkMatches = Array.from(cleanText.matchAll(linkRegex));
+                    linkMatches.forEach(m => outgoingLinks.push(m[1]));
+                    cleanText = cleanText.replace(linkRegex, '').trim();
+
+                    if (cleanText.length === 0) continue;
 
                     const blockIdMatch = line.match(/\^([a-zA-Z0-9]+)\s*$/);
                     const existingBlockId = blockIdMatch ? blockIdMatch[1] : null;
 
-                    allItemsFlat.push({
+                    fileItems.push({
                         text: cleanText,
                         rawText: rawTextForStitching,
                         color: matchedColor,
@@ -1624,51 +1864,15 @@ class CornellNotesView extends ItemView {
                         outgoingLinks: outgoingLinks
                     });
                 }
-
-                if (this.plugin.settings.extractHighlights) {
-                // 1. Comprobar exclusión de carpetas
-                const ignoredHlPaths = this.plugin.settings.ignoredHighlightFolders.split(',').map(s => s.trim()).filter(s => s.length > 0);
-                const isFolderIgnored = ignoredHlPaths.some(p => file.path.startsWith(p));
-
-                if (!isFolderIgnored) {
-                    const highlightRegex = /==(.*?)==/g;
-                    let highlightMatch;
-
-                    const blockIdMatch = line.match(/\^([a-zA-Z0-9]+)\s*$/);
-                    const lineBlockId = blockIdMatch ? blockIdMatch[1] : null;
-
-                    // 2. Preparar exclusión de textos (convertimos a minúsculas para que sea a prueba de errores)
-                    const ignoredTexts = this.plugin.settings.ignoredHighlightTexts.split(',').map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
-
-                    while ((highlightMatch = highlightRegex.exec(line)) !== null) {
-                        const rawHighlightText = highlightMatch[1].trim();
-
-                        if (rawHighlightText.length === 0) continue;
-
-                        // 3. Comprobar exclusión de texto
-                        const isTextIgnored = ignoredTexts.some(t => rawHighlightText.toLowerCase().includes(t));
-                        if (isTextIgnored) continue;
-
-                        const linkRegex = /(?<!!)\[\[(.*?)\]\]/g;
-                        const outgoingLinks: string[] = [];
-                        const linkMatches = Array.from(rawHighlightText.matchAll(linkRegex));
-                        linkMatches.forEach(m => outgoingLinks.push(m[1]));
-
-                        allItemsFlat.push({
-                            text: `==${rawHighlightText}==`, 
-                            rawText: rawHighlightText,       
-                            color: 'var(--text-highlight-bg)', 
-                            file: file,
-                            line: i,
-                            blockId: lineBlockId,
-                            outgoingLinks: outgoingLinks
-                        });
-                    }
-                }
             }
-            }
+            
+            // 💾 3. GUARDAR EN MEMORIA
+            this.vaultCache.set(file.path, { mtime: file.stat.mtime, items: fileItems });
+            allItemsFlat.push(...fileItems);
         }
-        this.cachedItems = allItemsFlat;
+        
+        // 🌉 EL PUENTE 
+        this.cachedItems = allItemsFlat; 
         this.applyFiltersAndRender();
     }
 
@@ -1952,11 +2156,48 @@ class CornellNotesView extends ItemView {
                 const titleSpan = itemWrapper.createSpan({ text: match ? match[2] : item.text });
                 titleSpan.style.wordBreak = 'break-word';
                 titleSpan.style.whiteSpace = 'normal';
+                titleSpan.style.cursor = 'text'; // 👈 Indica que es editable
+                titleSpan.title = "Double-click to edit";
                 
                 const delBtn = itemWrapper.createSpan({ text: '×', title: 'Borrar' });
                 delBtn.style.cursor = 'pointer';
                 delBtn.style.flexShrink = '0'; 
                 delBtn.onclick = () => { this.pinboardItems.splice(currentIndex, 1); this.applyFiltersAndRender(); };
+
+                // ✏️ MAGIA: Edición con Doble Clic para Títulos
+                titleSpan.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    const currentText = match ? match[2] : item.text;
+                    const prefix = match ? match[1] + " " : ""; // Conserva los '#'
+                    
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.value = currentText;
+                    input.style.width = '100%';
+                    input.style.background = 'transparent';
+                    input.style.border = '1px solid var(--interactive-accent)';
+                    input.style.color = 'inherit';
+                    input.style.font = 'inherit';
+                    input.style.outline = 'none';
+                    
+                    itemWrapper.replaceChild(input, titleSpan);
+                    input.focus();
+                    
+                    const saveEdit = () => {
+                        const newVal = input.value.trim();
+                        if (newVal) {
+                            item.text = prefix + newVal;
+                            item.rawText = prefix + newVal;
+                        }
+                        this.applyFiltersAndRender();
+                    };
+                    
+                    input.addEventListener('blur', saveEdit);
+                    input.addEventListener('keydown', (ev) => { 
+                        if (ev.key === 'Enter') saveEdit(); 
+                        if (ev.key === 'Escape') this.applyFiltersAndRender(); // Cancela sin guardar
+                    });
+                });
             
             } else if (item.isCustom) {
                 itemWrapper.style.padding = '6px 8px';
@@ -1972,8 +2213,10 @@ class CornellNotesView extends ItemView {
                 textSpan.style.whiteSpace = 'normal';
                 textSpan.style.flex = '1';
                 textSpan.style.marginRight = '10px';
+                textSpan.style.cursor = 'text'; // 👈 Indica que es editable
+                textSpan.title = "Double-click to edit";
                 
-                // 🎨 MAGIA PARA EL DOODLE: Si es una imagen, la renderiza, si no, pone texto
+                // 🎨 MAGIA PARA EL DOODLE (Intacta)
                 if (item.text.startsWith('![')) {
                     MarkdownRenderer.renderMarkdown(item.text, textSpan, "", this.plugin);
                     setTimeout(() => {
@@ -1988,7 +2231,7 @@ class CornellNotesView extends ItemView {
                 } else {
                     textSpan.innerText = '⚬ ' + item.text;
                 }
-                
+
                 const delBtn = itemWrapper.createSpan({ text: '×', title: 'Delete node' });
                 delBtn.style.cursor = 'pointer';
                 delBtn.style.opacity = '0.3';
@@ -1996,6 +2239,39 @@ class CornellNotesView extends ItemView {
                 delBtn.onclick = () => { this.pinboardItems.splice(currentIndex, 1); this.applyFiltersAndRender(); };
                 itemWrapper.onmouseenter = () => delBtn.style.opacity = '1';
                 itemWrapper.onmouseleave = () => delBtn.style.opacity = '0.3';
+
+                // ✏️ MAGIA: Edición con Doble Clic para Nodos Esqueleto/Doodles
+                textSpan.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.value = item.text; // Editable (sea texto normal o el enlace del doodle)
+                    input.style.width = '100%';
+                    input.style.background = 'transparent';
+                    input.style.border = '1px solid var(--interactive-accent)';
+                    input.style.color = 'inherit';
+                    input.style.font = 'inherit';
+                    input.style.outline = 'none';
+                    
+                    itemWrapper.replaceChild(input, textSpan);
+                    input.focus();
+                    
+                    const saveEdit = () => {
+                        const newVal = input.value.trim();
+                        if (newVal) {
+                            item.text = newVal;
+                            item.rawText = newVal;
+                        }
+                        this.applyFiltersAndRender();
+                    };
+                    
+                    input.addEventListener('blur', saveEdit);
+                    input.addEventListener('keydown', (ev) => { 
+                        if (ev.key === 'Enter') saveEdit(); 
+                        if (ev.key === 'Escape') this.applyFiltersAndRender(); // Cancela sin guardar
+                    });
+                });
 
             } else {
                 const marginaliaDOM = this.createItemDiv(item, itemWrapper, true, currentIndex);
@@ -2019,6 +2295,40 @@ class CornellNotesView extends ItemView {
             });
             itemWrapper.addEventListener('dragend', () => { itemWrapper.style.opacity = '1'; draggedIndex = null; });
         });
+
+        // --- 🎯 NUEVA ZONA DE CAÍDA INVISIBLE AL FINAL ---
+        const dropZone = listContainer.createDiv();
+        dropZone.style.height = '60px'; // Área cómoda para soltar
+        dropZone.style.width = '100%';
+        dropZone.style.marginTop = '10px';
+        dropZone.style.borderRadius = '4px';
+        dropZone.style.transition = 'all 0.2s ease';
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            // Borde punteado al pasar por encima
+            dropZone.style.border = '2px dashed var(--interactive-accent)'; 
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.border = 'none'; // Desaparece al salir
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.style.border = 'none';
+            
+            // Mueve la nota al final
+            if (draggedIndex !== null && draggedIndex !== this.pinboardItems.length - 1) {
+                const itemToMove = this.pinboardItems[draggedIndex];
+                this.pinboardItems.splice(draggedIndex, 1); 
+                this.pinboardItems.push(itemToMove); 
+                this.pinboardFocusIndex = this.pinboardItems.length - 1; 
+                this.applyFiltersAndRender();
+            }
+        });
+        // -------------------------------------------------
 
         if (this.pinboardFocusIndex !== null && listContainer.children[this.pinboardFocusIndex]) {
             (listContainer.children[this.pinboardFocusIndex] as HTMLElement).focus();
@@ -2484,6 +2794,18 @@ class CornellNotesView extends ItemView {
         container.empty();
         let totalFound = 0;
 
+        // 🎯 RENDERIZADO DEL BANNER ZOTLIKE PERSISTENTE
+        if (this.isZotlikeMode) {
+            const zotBanner = container.createDiv({ cls: 'cornell-sidebar-item' });
+            zotBanner.style.borderLeftColor = 'var(--interactive-accent)';
+            zotBanner.style.backgroundColor = 'var(--background-secondary)';
+            zotBanner.style.marginBottom = '15px';
+            zotBanner.style.padding = '10px';
+            zotBanner.style.borderRadius = '4px';
+            zotBanner.createDiv({ text: `📚 Linked to Active PDF:`, attr: { style: 'font-size: 0.85em; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;' } });
+            zotBanner.createDiv({ text: this.activePdfName, attr: { style: 'font-weight: bold; color: var(--text-accent); word-break: break-all; font-size: 1.1em;' } });
+        }
+
         for (const [color, items] of Object.entries(results)) {
             if (items.length === 0) continue;
             totalFound += items.length;
@@ -2657,31 +2979,68 @@ class CornellNotesView extends ItemView {
         textSpan.style.flexGrow = '1';
         textSpan.style.marginRight = '10px';
 
-        // 2. 🎨 MAGIA PURA: Le pasamos el texto al motor nativo de Obsidian
-        // Esto transforma Markdown, negritas, imágenes y recortes PDF++ en elementos visuales reales.
+        // 🎨 NUEVO: PRE-PROCESADOR DE IMÁGENES (La Bala de Plata)
+        // Como Obsidian falla al renderizar ![[imagen]] en la barra lateral, 
+        // lo convertimos temporalmente a HTML puro solo para dibujarlo.
+        // 🎨 NUEVO: PRE-PROCESADOR DE IMÁGENES (Optimizado con Caché y Tamaño Mini)
+        let textToRender = item.text;
+        const imgRegex = /!\[\[(.*?(?:\.png|\.jpg|\.jpeg|\.gif|\.bmp|\.svg))\|?(.*?)\]\]/gi;
+        
+        textToRender = textToRender.replace(imgRegex, (match, filename) => {
+            const trimmedFilename = filename.trim();
+            
+            // 1.🚀 REVISAR CACHÉ: ¿Ya buscamos esta imagen antes?
+            if (this.imagePathCache[trimmedFilename]) {
+                 // ¡Sí! Usamos la ruta guardada en RAM. Rápido.
+                 const cachedPath = this.imagePathCache[trimmedFilename];
+                 // Nota el cambio de estilo: max-height: 35px (tamaño renglón)
+                 return `<img src="${cachedPath}" class="cornell-sidebar-thumb" style="max-height: 35px; width: auto; object-fit: contain; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 5px;" />`;
+            }
+
+            // 2. SI NO ESTÁ EN CACHÉ: La buscamos en el disco (Lento la primera vez)
+            const file = this.plugin.app.metadataCache.getFirstLinkpathDest(trimmedFilename, item.file.path);
+            if (file) {
+                const resourcePath = this.plugin.app.vault.getResourcePath(file);
+                // Guardamos en caché para la próxima
+                this.imagePathCache[trimmedFilename] = resourcePath;
+                 // Nota el cambio de estilo: max-height: 35px
+                return `<img src="${resourcePath}" class="cornell-sidebar-thumb" style="max-height: 35px; width: auto; object-fit: contain; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 5px;" />`;
+            }
+            return match; // Si no existe, devolvemos el texto original
+        });;
+
+        // 2. 🎨 MAGIA PURA: Le pasamos el texto PROCESADO al motor nativo
         MarkdownRenderer.renderMarkdown(
-            item.text,         // El texto crudo (ej: ![[archivo.pdf#page=1]])
+            textToRender,      // 👈 AHORA LE PASAMOS EL TEXTO CON LA ETIQUETA <img>
             textSpan,          // Dónde lo vamos a dibujar
-            item.file.path,    // 🔗 FUNDAMENTAL: La ruta base para que los enlaces sepan a dónde apuntar
-            this               // El componente actual que controla el ciclo de vida
+            item.file.path,    // 🔗 FUNDAMENTAL: La ruta base
+            this               // El componente actual
         );  
 
         // 3. 🩹 Parche de Estilos Post-Renderizado
-        // El renderizador es asíncrono y le gusta meter etiquetas <p> con mucho margen, 
-        // además las imágenes pueden ser enormes. Las domamos 50ms después de renderizar.
         setTimeout(() => {
-            // Quitamos el margen a los párrafos para mantener tu diseño compacto
             const paragraphs = textSpan.querySelectorAll('p');
             paragraphs.forEach(p => {
                 p.style.margin = '0'; 
                 p.style.display = 'inline';
             });
             
-            // Limitamos el tamaño de los recortes PDF e imágenes para que no explote la barra lateral
             const embeds = textSpan.querySelectorAll('.internal-embed, img');
             embeds.forEach(embed => {
                 const el = embed as HTMLElement;
-                el.style.maxHeight = '180px'; 
+                
+                // 🎨 ARREGLO DE MINIATURAS: El tamaño depende de dónde estamos
+                if (isPinboardView) {
+                    el.style.maxHeight = '180px'; // Grande para el corcho
+                    el.style.display = 'block';
+                    el.style.marginTop = '5px';
+                } else {
+                    el.style.maxHeight = '35px';  // Miniatura para la lista
+                    el.style.display = 'inline-block';
+                    el.style.verticalAlign = 'middle';
+                    el.style.marginRight = '8px';
+                }
+                
                 el.style.maxWidth = '100%';
                 el.style.objectFit = 'contain';
                 el.style.borderRadius = '4px';
@@ -3048,7 +3407,11 @@ class CornellNotesView extends ItemView {
                 item.blockId = targetId; 
                 this.injectBackgroundBlockId(item.file, item.line, targetId);
             }
-            const dragPayload = `[[${item.file.basename}#^${targetId}|${item.text}]]`;
+            // 🛡️ SANITIZADOR DE ALIAS: Transforma la miniatura en texto seguro solo para el enlace
+            let safeAlias = item.text.replace(/!\[\[(.*?)\]\]/g, '🖼️ [Image]').trim();
+            if (!safeAlias) safeAlias = "Marginalia Doodle";
+
+            const dragPayload = `[[${item.file.basename}#^${targetId}|${safeAlias}]]`;
             event.dataTransfer.setData('text/plain', dragPayload);
             this.draggedSidebarItems = [item]; 
         });
