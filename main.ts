@@ -27,6 +27,7 @@ interface CornellSettings {
     doodleFolder: string;
     canvasFolder: string;
     pinboardFolder: string;
+    omniCaptureFolder: string;
 }
 
 
@@ -65,7 +66,8 @@ const DEFAULT_SETTINGS: CornellSettings = {
     zkFolder: 'Zettelkasten',
     doodleFolder: 'Marginalia Attachments',
     canvasFolder: 'Evidence Boards',
-    pinboardFolder: 'Pinboards'
+    pinboardFolder: 'Pinboards',
+    omniCaptureFolder: '',
 }
 
 
@@ -669,13 +671,11 @@ class OmniCaptureModal extends Modal {
         const context = this.clipboardInput.value.trim();
         let rawDestInput = this.destinationInput.value.trim() || "Marginalia Inbox";
         
-        // 🛡️ ESCUDO ANTI-CADENAS
         let cleanDestName = rawDestInput.replace(/^\d{12,14}\s*-\s*/, '').trim();
         if (!cleanDestName) cleanDestName = "Marginalia Inbox";
 
         let finalDestName = cleanDestName;
 
-        // 🧠 APLICAMOS EL MODO ZK AL MODAL PRINCIPAL
         if (this.plugin.settings.zkMode) {
             // @ts-ignore
             const zkId = window.moment().format('YYYYMMDDHHmmss');
@@ -691,7 +691,6 @@ class OmniCaptureModal extends Modal {
             return;
         }
 
-        // 🧠 ACTUALIZAR MEMORIA (Guardamos el destino LIMPIO)
         if (this.plugin.settings.lastOmniDestination !== cleanDestName) {
             this.plugin.settings.lastOmniDestination = cleanDestName;
             await this.plugin.saveSettings();
@@ -764,7 +763,6 @@ class OmniCaptureModal extends Modal {
         }
         finalMd += `\n---\n`;
 
-        // 4. INYECCIÓN BÚSQUEDA GLOBAL
         let file = this.app.metadataCache.getFirstLinkpathDest(finalDestName, "");
 
         try {
@@ -772,18 +770,21 @@ class OmniCaptureModal extends Modal {
                 await this.app.vault.append(file, finalMd);
             } else {
                 let fileName = finalDestName.endsWith(".md") ? finalDestName : `${finalDestName}.md`;
-                
-                // 📁 MAGIA DE CARPETA ZK TAMBIÉN AQUÍ
+                let folderPath = ""; 
+
                 if (this.plugin.settings.zkMode) {
-                    const zkFolderPath = this.plugin.settings.zkFolder.trim();
-                    if (zkFolderPath) {
-                        await this.plugin.ensureFolderExists(zkFolderPath);
-                        fileName = `${zkFolderPath}/${fileName}`;
-                    }
-                    await this.app.vault.create(fileName, `# 🗃️ ${finalDestName}\n` + finalMd);
+                    folderPath = this.plugin.settings.zkFolder.trim(); 
                 } else {
-                    await this.app.vault.create(fileName, `# 📥 ${finalDestName}\n` + finalMd);
+                    folderPath = this.plugin.settings.omniCaptureFolder.trim(); 
                 }
+
+                if (folderPath) {
+                    await this.plugin.ensureFolderExists(folderPath); 
+                    fileName = `${folderPath}/${fileName}`; 
+                }
+
+                const header = this.plugin.settings.zkMode ? `# 🗃️ ${finalDestName}\n` : `# 📥 ${finalDestName}\n`; 
+                await this.app.vault.create(fileName, header + finalMd); 
             }
             new Notice(`✅ Capture injected into ${finalDestName}`);
             this.close();
@@ -796,7 +797,7 @@ class OmniCaptureModal extends Modal {
     onClose() {
         this.contentEl.empty();
     }
-}
+} // <--- Esta última llave cierra la clase OmniCaptureModal
 
   
 
@@ -1488,19 +1489,26 @@ class CornellNotesView extends ItemView {
                         await this.app.vault.append(file, finalMd);
                     } else {
                         let fileName = finalDestName.endsWith(".md") ? finalDestName : `${finalDestName}.md`;
-                        
-                        // 📁 MAGIA DE CARPETA ZK
+                        let folderPath = ""; 
+
+                        // 📁 DETERMINAR LA CARPETA (Prioridad: ZK Mode > Omni Folder)
                         if (this.plugin.settings.zkMode) {
-                            const zkFolderPath = this.plugin.settings.zkFolder.trim();
-                            if (zkFolderPath) {
-                                await this.plugin.ensureFolderExists(zkFolderPath);
-                                fileName = `${zkFolderPath}/${fileName}`;
-                            }
-                            await this.app.vault.create(fileName, `# 🗃️ ${finalDestName}\n` + finalMd);
+                            folderPath = this.plugin.settings.zkFolder.trim(); 
                         } else {
-                            await this.app.vault.create(fileName, `# 📥 ${finalDestName}\n` + finalMd);
+                            folderPath = this.plugin.settings.omniCaptureFolder.trim(); 
                         }
+
+                        // Si hay una carpeta definida, aseguramos que exista y ajustamos la ruta
+                        if (folderPath) {
+                            await this.plugin.ensureFolderExists(folderPath); 
+                            fileName = `${folderPath}/${fileName}`; 
+                        }
+
+                        // Crear el archivo con el encabezado correspondiente
+                        const header = this.plugin.settings.zkMode ? `# 🗃️ ${finalDestName}\n` : `# 📥 ${finalDestName}\n`; 
+                        await this.app.vault.create(fileName, header + finalMd); 
                     }
+                    
                     
                     // 5. LIMPIEZA INTELIGENTE
                     new Notice(`⚡ Capture injected into ${finalDestName}`);
@@ -3201,6 +3209,8 @@ class CornellSettingTab extends PluginSettingTab {
                     new Notice('Reload the note to see changes in Reading View');
                 }));
         
+        
+        
         new Setting(containerEl).setName('Margin Alignment').addDropdown(d => d.addOption('left', 'Left').addOption('right', 'Right').setValue(this.plugin.settings.alignment).onChange(async v => { this.plugin.settings.alignment = v as any; await this.plugin.saveSettings(); this.plugin.updateStyles(); }));
         new Setting(containerEl).setName('Margin Width (%)').addSlider(s => s.setLimits(15, 60, 1).setValue(this.plugin.settings.marginWidth).setDynamicTooltip().onChange(async v => { this.plugin.settings.marginWidth = v; await this.plugin.saveSettings(); this.plugin.updateStyles(); }));
         new Setting(containerEl).setName('Font Size').addText(t => t.setValue(this.plugin.settings.fontSize).onChange(async v => { this.plugin.settings.fontSize = v; await this.plugin.saveSettings(); this.plugin.updateStyles(); }));
@@ -3214,7 +3224,20 @@ class CornellSettingTab extends PluginSettingTab {
         
         containerEl.createEl('h3', { text: 'File & Output Management' });
 
+    // Dentro de display() en CornellSettingTab:
+    new Setting(containerEl)
+    .setName('Omni-Capture Default Folder')
+    .setDesc('Folder where new marginalia files will be created (leave empty for root).')
+    .addText(text => text
+        .setPlaceholder('Example: 00_Inbox')
+        .setValue(this.plugin.settings.omniCaptureFolder)
+        .onChange(async (value) => {
+            this.plugin.settings.omniCaptureFolder = value.trim();
+            await this.plugin.saveSettings();
+        })); //
+
         // 📁 NUEVO AJUSTE PARA ZK
+        
         new Setting(containerEl)
             .setName('Zettelkasten Folder')
             .setDesc('Where should your ZK notes be created? (Leave empty for root)')
@@ -3237,9 +3260,14 @@ class CornellSettingTab extends PluginSettingTab {
 
         containerEl.createEl('h3', { text: 'Advanced' });
         new Setting(containerEl).setName('Ignored Folders').addTextArea(t => t.setValue(this.plugin.settings.ignoredFolders).onChange(async v => { this.plugin.settings.ignoredFolders = v; await this.plugin.saveSettings(); this.plugin.app.workspace.updateOptions(); }));
+    
+        
         
     }
+
 }
+
+
 
 // --- PLUGIN PRINCIPAL ---
 export default class CornellMarginalia extends Plugin {
@@ -3543,6 +3571,55 @@ export default class CornellMarginalia extends Plugin {
             name: 'Restore Marginalia after PDF Print',
             editorCallback: (editor: Editor) => { this.restoreFromPrint(editor); }
         });
+
+       // --- REGISTRO DEL MENÚ DE CLIC DERECHO (CONTEXT MENU) ---
+this.registerEvent(
+    this.app.workspace.on('editor-menu', (menu, editor, view) => {
+        
+        // 1. Opción para insertar nota marginal rápida
+        menu.addItem((item) => {
+            item
+                .setTitle("Insert Margin Note")
+                .setIcon("quote-glyph") 
+                .setSection("insert")   
+                .onClick(() => {
+                    const selection = editor.getSelection();
+                    if (selection) {
+                        editor.replaceSelection(`%%> ${selection} %%`);
+                    } else {
+                        editor.replaceSelection(`%%>  %%`);
+                        const cursor = editor.getCursor();
+                        editor.setCursor({ line: cursor.line, ch: cursor.ch - 3 });
+                    }
+                });
+        });
+
+        // 2. Opción para abrir el Omni-Capture
+        menu.addItem((item) => {
+            item
+                .setTitle("Omni-Capture Idea")
+                .setIcon("zap")        
+                .setSection("insert")
+                .onClick(() => {
+                    new OmniCaptureModal(this.app, this).open();
+                });
+        });
+
+        // 3. Opción para dibujar un Doodle (Marginalia de imagen)
+        menu.addItem((item) => {
+            item
+                .setTitle("Draw Margin Doodle")
+                .setIcon("pencil")     // Ícono de lápiz para dibujo
+                .setSection("insert")
+                .onClick(() => {
+                    // Abrimos el motor de dibujo que ya tienes programado
+                    new DoodleModal(this.app, editor).open();
+                });
+        });
+    })
+);
+
+
 
         this.registerMarkdownPostProcessor((el, ctx) => {
             if (!this.settings.enableReadingView) return;
