@@ -897,9 +897,139 @@ input.cornell-search-bar:focus {
 /*    pointer-events: none !important;
 /* }
 
+
+
 /* ======================================================
    👻 CLASE PARA OCULTAR TEXTO CRUDO EN MODO EDICIÓN
    ====================================================== */
 .cornell-hide-raw {
     display: none !important;
+}
+
+
+/* ======================================================
+   🎮 GAMIFICATION ADDON STYLES
+   ====================================================== */
+.cornell-profile-widget {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 15px;
+}
+
+.cornell-profile-avatar {
+    font-size: 2em;
+    background: var(--background-primary);
+    border-radius: 50%;
+    padding: 5px;
+    height: 65px;
+    width: 65px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--interactive-accent);
+}
+
+.cornell-profile-info {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cornell-profile-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85em;
+    font-weight: bold;
+    color: var(--text-normal);
+}
+
+.cornell-profile-score {
+    color: var(--text-muted);
+    font-weight: normal;
+}
+
+.cornell-xp-bar-container {
+    width: 100%;
+    height: 6px;
+    background-color: var(--background-modifier-border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.cornell-xp-bar {
+    height: 100%;
+    background-color: var(--color-green);
+    transition: width 0.3s ease;
+}
+
+.cornell-xp-text {
+    font-size: 0.7em;
+    color: var(--text-faint);
+    text-align: right;
+}
+
+/* ======================================================
+   🖼️ CUSTOM BACKGROUND ADDON STYLES
+   ====================================================== */
+.cornell-sidebar-container {
+    position: relative; /* Necesario para contener el fondo */
+    overflow: hidden; /* Evita que el blur ensucie fuera de la barra */
+    z-index: 1;
+}
+
+/* El pseudo-elemento que dibuja el fondo con blur */
+.cornell-sidebar-container::before {
+    content: "";
+    position: absolute;
+    top: -20px; left: -20px; right: -20px; bottom: -20px; /* Expandido para ocultar los bordes feos del blur */
+    background-image: var(--cornell-sidebar-bg, none);
+    background-size: cover;
+    background-position: center;
+    filter: blur(var(--cornell-sidebar-blur, 0px));
+    z-index: -2;
+    pointer-events: none;
+    transition: filter 0.3s ease;
+}
+
+/* El oscurecedor (Overlay) para que el texto siga siendo legible */
+.cornell-sidebar-container::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: var(--background-primary);
+    opacity: var(--cornell-sidebar-opacity, 0);
+    z-index: -1;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+/* --- ACTUALIZACIONES DEL PERFIL --- */
+.cornell-profile-widget {
+    /* Hacemos la tarjeta un poco transparente tipo "Glassmorphism" */
+    background-color: rgba(var(--background-secondary-rgb), 0.6) !important;
+    backdrop-filter: blur(8px); 
+    border-color: rgba(var(--background-modifier-border-rgb), 0.3) !important;
+}
+
+.cornell-profile-avatar-img {
+    width: 65px;
+    height: 65px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--interactive-accent);
+    flex-shrink: 0;
+}
+
+.cornell-profile-quote {
+    font-size: 0.8em;
+    font-style: italic;
+    color: var(--text-muted);
+    margin-top: 6px;
+    line-height: 1.2;
 }

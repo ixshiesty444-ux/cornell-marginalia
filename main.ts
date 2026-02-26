@@ -2,11 +2,27 @@ import { App, Plugin, PluginSettingTab, Setting, MarkdownRenderer, Component, Ed
 import { RangeSetBuilder } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
+// 👇 IMPORTAMOS NUESTRO NUEVO ADDON
+import { GamificationAddon } from "./addons/GamificationAddon";
+import { CustomBackgroundAddon } from "./addons/CustomBackgroundAddon";
 
 // --- ESTRUCTURAS ---
 interface CornellTag {
     prefix: string; 
     color: string;  
+}
+
+// --- NUEVAS ESTRUCTURAS PARA EL PERFIL ---
+export interface UserStats {
+    xp: number;
+    level: number;
+    marginaliasCreated: number;
+    colorUsage: Record<string, number>;
+    profileImage: string;
+    quote: string;
+    customBackground: string;
+    bgBlur: number;
+    bgOpacity: number;
 }
 
 interface CornellSettings {
@@ -28,6 +44,8 @@ interface CornellSettings {
     canvasFolder: string;
     pinboardFolder: string;
     omniCaptureFolder: string;
+    addons: Record<string, boolean>; 
+    userStats: UserStats;
 }
 
 
@@ -68,6 +86,19 @@ const DEFAULT_SETTINGS: CornellSettings = {
     canvasFolder: 'Evidence Boards',
     pinboardFolder: 'Pinboards',
     omniCaptureFolder: '',
+    // 👇 LOS VALORES POR DEFECTO PARA LOS NUEVOS USUARIOS
+    addons: {
+        "gamification-profile": false, // Por defecto viene apagado
+        "custom-background": false
+    },
+    userStats: {
+        xp: 0,
+        level: 1,
+        marginaliasCreated: 0,
+        colorUsage: {},
+        profileImage: "", quote: "Stay curious.",
+        customBackground: "", bgBlur: 5, bgOpacity: 0.8
+    }
 }
 
 
@@ -882,6 +913,16 @@ class OmniCaptureModal extends Modal {
                 await this.app.vault.create(fileName, header + finalMd); 
             }
             new Notice(`✅ Capture injected into ${finalDestName}`);
+            // --- 🎮 MOTOR DE EXPERIENCIA (GAMIFICACIÓN) ---
+            if (this.plugin.settings.addons && this.plugin.settings.addons["gamification-profile"]) {
+                this.plugin.gamificationAddon.addXp();
+                
+                // Le avisamos a la barra lateral que se redibuje para actualizar la barra de XP visualmente
+                this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE).forEach(leaf => {
+                    if (leaf.view instanceof CornellNotesView) leaf.view.renderUI();
+                });
+            }
+            // ----------------------------------------------
             this.close();
         } catch (error) {
             new Notice("Error saving capture. Check console.");
@@ -1279,6 +1320,41 @@ class CornellNotesView extends ItemView {
         container.addClass('cornell-sidebar-container');
 
         container.createEl("h4", { text: "Marginalia Explorer", cls: "cornell-sidebar-title" });
+
+        // --- 🧩 INYECCIÓN DEL ADDON DE GAMIFICACIÓN ---
+        if (this.plugin.settings.addons && this.plugin.settings.addons["gamification-profile"]) {
+            const stats = this.plugin.settings.userStats;
+            const profileDiv = container.createDiv({ cls: 'cornell-profile-widget' });
+            
+            const nextLevelXp = stats.level * 100;
+            const xpPercentage = Math.min(100, (stats.xp / nextLevelXp) * 100);
+
+            // Si no hay foto, usamos un emoji de placeholder
+            const avatarHtml = stats.profileImage 
+                ? `<img src="${stats.profileImage}" class="cornell-profile-avatar-img" />` 
+                : `<div class="cornell-profile-avatar">👤</div>`;
+
+            const quoteHtml = stats.quote 
+                ? `<div class="cornell-profile-quote">"${stats.quote}"</div>` 
+                : ``;
+
+            profileDiv.innerHTML = `
+                ${avatarHtml}
+                <div class="cornell-profile-info">
+                    <div class="cornell-profile-header">
+                        <span class="cornell-profile-level">Level ${stats.level}</span>
+                        <span class="cornell-profile-score">${stats.marginaliasCreated} Notes</span>
+                    </div>
+                    <div class="cornell-xp-bar-container">
+                        <div class="cornell-xp-bar" style="width: ${xpPercentage}%;"></div>
+                    </div>
+                    <div class="cornell-xp-text">${stats.xp} / ${nextLevelXp} XP</div>
+                    ${quoteHtml}
+                </div>
+            `;
+        }
+        // ----------------------------------------------
+
         this.renderQuickCapture(container as HTMLElement); // Aquí inyectamos la barra superior
 
         const controlsDiv = container.createDiv({ cls: 'cornell-sidebar-controls' });
@@ -1717,6 +1793,12 @@ class CornellNotesView extends ItemView {
                     
                     // 5. LIMPIEZA INTELIGENTE
                     new Notice(`⚡ Capture injected into ${finalDestName}`);
+                    // --- 🎮 MOTOR DE EXPERIENCIA (GAMIFICACIÓN) ---
+                    if (this.plugin.settings.addons && this.plugin.settings.addons["gamification-profile"]) {
+                        this.plugin.gamificationAddon.addXp();
+                        this.renderUI(); // Refresca el perfil instantáneamente
+                    }
+                    // ----------------------------------------------
                     this.sliderIdeaInput.value = '';
                     this.sliderDestInput.value = cleanDestName; // 👈 Resetea visualmente el input para quitar la basura
                     this.pendingDoodleData = null;
@@ -3624,8 +3706,67 @@ class CornellSettingTab extends PluginSettingTab {
         containerEl.createEl('h3', { text: 'Advanced' });
         new Setting(containerEl).setName('Ignored Folders').addTextArea(t => t.setValue(this.plugin.settings.ignoredFolders).onChange(async v => { this.plugin.settings.ignoredFolders = v; await this.plugin.saveSettings(); this.plugin.app.workspace.updateOptions(); }));
     
-        
-        
+    // --- 🧩 SECCIÓN DE ADDONS ---
+        containerEl.createEl('h3', { text: '🧩 Addons & Modules' });
+
+        new Setting(containerEl)
+            .setName('Gamification & User Profile')
+            .setDesc('Turn your marginalia into a game! Earn XP, level up, and customize your profile sidebar.')
+            .addToggle(toggle => toggle
+                // Leemos si la mochila dice que está encendido o apagado
+                .setValue(this.plugin.settings.addons["gamification-profile"])
+                .onChange(async (value) => {
+                    
+                    // 1. Actualizamos la memoria (mochila)
+                    this.plugin.settings.addons["gamification-profile"] = value;
+                    await this.plugin.saveSettings();
+
+                    // 2. Encendemos o apagamos el motor en tiempo real
+                    if (value) {
+                        this.plugin.gamificationAddon.load();
+                        new Notice("🎮 Gamification Addon Enabled!");
+                    } else {
+                        this.plugin.gamificationAddon.unload();
+                        new Notice("🛑 Gamification Addon Disabled.");
+                    }
+                })
+            );    
+       // Controles hijos para Gamificación (Foto y Frase)
+            if (this.plugin.settings.addons["gamification-profile"]) {
+                new Setting(containerEl).setName('Profile Image URL').setDesc('Paste an image URL for your avatar.').addText(text => text.setValue(this.plugin.settings.userStats.profileImage).onChange(async (value) => {
+                    this.plugin.settings.userStats.profileImage = value; await this.plugin.saveSettings();
+                }));
+                new Setting(containerEl).setName('Inspirational Quote').setDesc('A short bio or quote for your profile.').addText(text => text.setValue(this.plugin.settings.userStats.quote).onChange(async (value) => {
+                    this.plugin.settings.userStats.quote = value; await this.plugin.saveSettings();
+                }));
+            }
+
+            // --- ADDON: CUSTOM BACKGROUND ---
+            new Setting(containerEl)
+                .setName('Custom Explorer Background')
+                .setDesc('Add a beautiful background image to your Marginalia Explorer.')
+                .addToggle(toggle => toggle
+                    .setValue(this.plugin.settings.addons["custom-background"])
+                    .onChange(async (value) => {
+                        this.plugin.settings.addons["custom-background"] = value;
+                        await this.plugin.saveSettings();
+                        if (value) { this.plugin.backgroundAddon.load(); } 
+                        else { this.plugin.backgroundAddon.unload(); }
+                        this.display(); // Redibuja el menú para mostrar/ocultar las opciones de abajo
+                    })
+                );
+
+            if (this.plugin.settings.addons["custom-background"]) {
+                new Setting(containerEl).setName('Background Image URL').setDesc('Paste an image URL (e.g., from Unsplash) or local vault path.').addText(text => text.setValue(this.plugin.settings.userStats.customBackground).onChange(async (value) => {
+                    this.plugin.settings.userStats.customBackground = value; await this.plugin.saveSettings(); this.plugin.backgroundAddon.applyStyles();
+                }));
+                new Setting(containerEl).setName('Background Blur').setDesc('Amount of blur (lo-fi effect).').addSlider(slider => slider.setLimits(0, 20, 1).setValue(this.plugin.settings.userStats.bgBlur).setDynamicTooltip().onChange(async (value) => {
+                    this.plugin.settings.userStats.bgBlur = value; await this.plugin.saveSettings(); this.plugin.backgroundAddon.applyStyles();
+                }));
+                new Setting(containerEl).setName('Dark Overlay Opacity').setDesc('Dims the background so text is readable (0 = invisible, 1 = pitch black).').addSlider(slider => slider.setLimits(0.1, 1.0, 0.05).setValue(this.plugin.settings.userStats.bgOpacity).setDynamicTooltip().onChange(async (value) => {
+                    this.plugin.settings.userStats.bgOpacity = value; await this.plugin.saveSettings(); this.plugin.backgroundAddon.applyStyles();
+                }));
+            } 
     }
 
 }
@@ -3637,7 +3778,11 @@ export default class CornellMarginalia extends Plugin {
     settings!: CornellSettings;
     activeRecallMode: boolean = false; 
     ribbonIcon!: HTMLElement;
+    // 👇 RESERVAMOS ESPACIO PARA EL ADDON DE GAMIFICACIÓN
+    gamificationAddon!: GamificationAddon;
+    backgroundAddon!: CustomBackgroundAddon;
 
+   
     // 📁 MOTOR DE CREACIÓN DE CARPETAS
     async ensureFolderExists(folderPath: string) {
         if (!folderPath || folderPath === "/" || folderPath.trim() === "") return;
@@ -3656,6 +3801,21 @@ export default class CornellMarginalia extends Plugin {
 
     async onload() {
         await this.loadSettings();
+
+        // 👇 INICIALIZAMOS Y CONECTAMOS LOS ADDONS
+        this.gamificationAddon = new GamificationAddon(this);
+        
+        // Revisamos en los settings si el usuario lo tiene "encendido"
+        if (this.settings.addons && this.settings.addons["gamification-profile"]) {
+            this.gamificationAddon.load();
+        }
+
+        this.backgroundAddon = new CustomBackgroundAddon(this);
+        if (this.settings.addons && this.settings.addons["custom-background"]) {
+            this.backgroundAddon.load();
+        }
+        // 👆 FIN DE LA CONEXIÓN DE ADDONS
+
         this.updateStyles(); 
         this.registerView(CORNELL_VIEW_TYPE, (leaf) => new CornellNotesView(leaf, this));
 
