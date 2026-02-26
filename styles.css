@@ -1514,3 +1514,34 @@ input.cornell-search-bar:focus {
     -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
+
+/* ======================================================
+   🔍 LIGHTBOX PARA DOODLES Y VISUALIZADOR DE IMÁGENES
+   ====================================================== */
+.cornell-lightbox-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(5px);
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+    animation: cornell-fade-in 0.2s ease forwards;
+}
+
+.cornell-lightbox-overlay img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    background-color: transparent;
+    animation: cornell-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes cornell-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cornell-pop-in { 
+    from { transform: scale(0.9); opacity: 0; } 
+    to { transform: scale(1); opacity: 1; } 
+}

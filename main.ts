@@ -3903,11 +3903,12 @@ export class RhizomeView extends ItemView {
         this.renderTopBar();
 
         this.canvasEl.createEl("h2", { 
-            text: "⏳ Viajando en el tiempo... (Escaneando bóveda)",
+            text: "⏳ Time travel... (Scanning vault)",
             attr: { style: "color: var(--text-muted); text-align: center; margin-top: 20%;" }
         });
 
         await this.scanVault();
+        await this.runGarbageCollector(); // 🧹 Llamamos al limpiador silencioso
         this.renderTimeline();
     }
 
@@ -4034,6 +4035,32 @@ export class RhizomeView extends ItemView {
                     this.allCachedNodes.push(nodeData);
                 }
             }
+        }
+    }
+    // 🧹 MOTOR DE LIMPIEZA (Garbage Collector)
+    // Borra los datos de repaso de las flashcards/notas que el usuario ya eliminó de su bóveda
+    async runGarbageCollector() {
+        if (!this.plugin.settings.userStats || !this.plugin.settings.userStats.rhizomeReviews) return;
+
+        // 1. Recolectamos todos los IDs de las notas que SÍ existen ahora mismo
+        const currentValidIds = new Set(this.allCachedNodes.map(node => node.id));
+        let isDirty = false; // Bandera para saber si borramos algo
+        let deletedCount = 0;
+
+        // 2. Revisamos la memoria del Heatmap
+        for (const savedId in this.plugin.settings.userStats.rhizomeReviews) {
+            // Si el ID guardado ya no existe en las notas reales...
+            if (!currentValidIds.has(savedId)) {
+                delete this.plugin.settings.userStats.rhizomeReviews[savedId]; // Lo exterminamos
+                isDirty = true;
+                deletedCount++;
+            }
+        }
+
+        // 3. Si limpiamos basura, guardamos el archivo para que pese menos
+        if (isDirty) {
+            await this.plugin.saveSettings();
+            console.log(`🧹 Rhizome Garbage Collector: Se eliminaron ${deletedCount} registros huérfanos. Tu data.json está optimizado.`);
         }
     }
 
@@ -4229,8 +4256,10 @@ export class RhizomeView extends ItemView {
                     btnEasy.onclick = (e) => processGrade('easy', e);
                 }
 
+                // 🛠️ BOTONERA DE ACCIONES (Foco, Cosido y Zoom)
                 const actionsDiv = node.createDiv({ cls: 'cornell-rhizome-actions' });
                 
+                // 1. Botón de Cosido
                 const stitchBtn = actionsDiv.createDiv({ cls: 'cornell-action-btn' });
                 setIcon(stitchBtn, 'link');
                 stitchBtn.title = "Stitch (Connect) to another note";
@@ -4239,6 +4268,7 @@ export class RhizomeView extends ItemView {
                     this.handleStitchClick(item, node, canvas);
                 });
 
+                // 2. Botón de Foco
                 const focusBtn = actionsDiv.createDiv({ cls: 'cornell-action-btn' });
                 setIcon(focusBtn, 'focus'); 
                 focusBtn.title = "Focus on semantic cluster";
@@ -4247,6 +4277,45 @@ export class RhizomeView extends ItemView {
                     this.activateFocusMode(item.id, allNodes, domNodesMap, canvas);
                 });
 
+                // 3. NUEVO: Botón de Zoom (¡Solo aparece si hay imágenes!)
+                if (imagesToRender.length > 0) {
+                    const zoomBtn = actionsDiv.createDiv({ cls: 'cornell-action-btn' });
+                    setIcon(zoomBtn, 'maximize'); // Ícono de expandir
+                    zoomBtn.title = "View Doodle in Fullscreen";
+                    zoomBtn.onClickEvent((e) => {
+                        e.stopPropagation(); // Evita abrir la nota de fondo
+                        
+                        const firstImg = imagesToRender[0];
+                        const cleanName = firstImg.split('|')[0];
+                        const file = this.plugin.app.metadataCache.getFirstLinkpathDest(cleanName, item.file.path);
+                        
+                        if (file) {
+                            const imgSrc = this.plugin.app.vault.getResourcePath(file);
+                            const overlay = document.body.createDiv({ cls: 'cornell-lightbox-overlay' });
+                            const bigImg = overlay.createEl('img', { attr: { src: imgSrc } });
+                            
+                            // 👇 --- corrijo el fondo --- 
+                            bigImg.style.backgroundColor = 'white'; // Dar fondo blanco
+                            bigImg.style.padding = '10px'; // Dar un poco de espacio
+                            bigImg.style.borderRadius = '8px'; // Suavizar bordes
+                            // ------------------------------------
+
+                            // Inversión inteligente de colores
+                            if (document.body.classList.contains('theme-dark') && cleanName.includes('doodle_')) {
+                                bigImg.style.filter = 'invert(1)';
+                                bigImg.style.opacity = '0.9';
+                            }
+
+                            overlay.onclick = () => overlay.remove();
+                            const escListener = (ev: KeyboardEvent) => {
+                                if (ev.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escListener); }
+                            };
+                            document.addEventListener('keydown', escListener);
+                        }
+                    });
+                }
+
+                // 🚪 CLIC NORMAL EN LA TARJETA (Abre la nota)
                 node.onClickEvent(() => {
                     this.plugin.app.workspace.getLeaf(false).openFile(item.file, { eState: { line: item.line } });
                 });
