@@ -687,17 +687,25 @@ body.cornell-active-recall-on .cornell-flashcard-target .cm-cornell-margin * {
 
 /* 🎨 INVERSIÓN INTELIGENTE PARA DOODLES EN MODO OSCURO */
 
-/* Obsidian añade la clase .theme-dark al body cuando activas el modo oscuro.
-   Buscamos cualquier imagen dentro de marginalias cuyo nombre (src) contenga "doodle_". */
-body.theme-dark .cm-cornell-margin img[src*="doodle_"] {
+/* Buscamos cualquier imagen dentro de marginalias cuyo nombre (src) contenga "doodle_" */
+body.theme-dark .cm-cornell-margin img[src*="doodle_"],
+body.theme-dark .reading-mode-margin img[src*="doodle_"],
+body.theme-dark .cornell-rhizome-node img[src*="doodle_"] {
     /* Convierte los píxeles negros en blancos puros */
     filter: invert(1); 
-    
-    /* Le bajamos un 10% el brillo para que la tinta blanca no te encandile al leer de noche */
     opacity: 0.9; 
-    
-    /* Una transición suave por si cambias de tema claro a oscuro con la nota abierta */
     transition: filter 0.3s ease, opacity 0.3s ease; 
+}
+
+/* 🧼 LIMPIEZA TOTAL DE BORDES PARA DOODLES (Efecto "Tinta en Papel") */
+.cm-cornell-margin img[src*="doodle_"],
+.reading-mode-margin img[src*="doodle_"],
+.cornell-rhizome-node img[src*="doodle_"] {
+    border: none !important; 
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    outline: none !important;
 }
 
 /* 🧼 LIMPIEZA TOTAL DE BORDES PARA DOODLES (Efecto "Tinta en Papel") */
@@ -1032,4 +1040,477 @@ input.cornell-search-bar:focus {
     color: var(--text-muted);
     margin-top: 6px;
     line-height: 1.2;
+}
+
+/* ======================================================
+   🌱 RHIZOME TIME MACHINE STYLES
+   ====================================================== */
+.cornell-rhizome-canvas {
+    width: 100%;
+    height: 100%;
+    background-color: var(--background-primary-alt);
+    background-image: radial-gradient(circle, var(--background-modifier-border) 1px, transparent 1px);
+    background-size: 25px 25px;
+    overflow: hidden; 
+    display: block; /* 👈 Cambiado a block */
+}
+
+/* 1. El Marco de la Ventana (El que maneja las barras de scroll) */
+.cornell-rhizome-scroll {
+    display: block; /* 👈 Ya no es flex, ahora es una simple ventana */
+    width: 100%;
+    height: 100%;
+    overflow: auto; /* Permite scroll en ambas direcciones */
+    position: relative;
+}
+
+/* 2. El Lienzo Elástico (El que hace zoom y agrupa las columnas) */
+.cornell-rhizome-content {
+    display: flex; /* 👈 ESTO CREA LAS COLUMNAS HORIZONTALES */
+    flex-direction: row;
+    gap: 60px;
+    align-items: flex-start;
+    padding: 60px;
+    min-width: max-content; /* 👈 MAGIA: Obliga al lienzo a crecer hacia la derecha infinitamente */
+    transform-origin: top left;
+    transition: zoom 0.2s ease;
+}
+
+.cornell-rhizome-day-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    
+    /* 🛡️ EL ESCUDO: Forzamos un ancho estricto */
+    width: 280px; 
+    min-width: 280px;
+    max-width: 280px; 
+}
+
+/* 3. El Hilo del Tiempo Vertical (Arreglo del scroll infinito) */
+.cornell-rhizome-day-column::before {
+    content: '';
+    position: absolute;
+    top: 30px;
+    bottom: -3000px; /* 👈 Cambiamos el -100vh problemático por un valor estático seguro */
+    width: 2px;
+    background: var(--background-modifier-border-hover);
+    z-index: 0;
+}
+
+.cornell-rhizome-date-label {
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.85em;
+    z-index: 1;
+    margin-bottom: 30px;
+    border: 1px solid var(--background-modifier-border);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.cornell-rhizome-nodes {
+    display: flex;
+    flex-direction: column;
+    gap: 25px;
+    z-index: 1;
+    width: 100%;
+}
+
+/* Las tarjetas de las Marginalias */
+.cornell-rhizome-node {
+    background: var(--background-primary);
+    border-left: 4px solid; /* El color se inyecta por JS */
+    border-top: 1px solid var(--background-modifier-border);
+    border-right: 1px solid var(--background-modifier-border);
+    border-bottom: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 14px;
+    width: 100%;
+    font-size: 0.85em;
+    color: var(--text-normal);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    line-height: 1.4;
+    /* Efecto Glassmorphism ligero */
+    backdrop-filter: blur(4px);
+    background-color: rgba(var(--background-primary-rgb), 0.85);
+}
+
+/*  rompe palabras */
+.cornell-rhizome-node span {
+    display: block;
+    white-space: normal;      
+    overflow-wrap: break-word; 
+    word-break: break-word;    
+}
+
+.cornell-rhizome-node:hover {
+    transform: translateY(-3px) scale(1.02);
+    background: var(--background-secondary);
+}
+/* --- SVG Y HILOS SEMÁNTICOS --- */
+.cornell-rhizome-scroll {
+    position: relative; 
+}
+
+.cornell-rhizome-svg-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none; 
+    z-index: 0; 
+}
+
+.cornell-semantic-thread {
+    stroke-dasharray: 6 6;
+    animation: cornell-flow 15s linear infinite;
+    opacity: 0; /* 👈 MAGIA: Invisibles por defecto */
+    transition: opacity 0.3s ease, stroke-width 0.3s ease;
+}
+
+/* Cuando el ratón pasa por una nota, el JS le pone esta clase a sus hilos */
+.cornell-semantic-thread.is-visible {
+    opacity: 0.8;
+    stroke-width: 3px;
+    filter: drop-shadow(0 0 4px var(--interactive-accent));
+}
+
+.cornell-rhizome-node {
+    z-index: 2; 
+    position: relative;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* Efecto para la nota que estás tocando */
+.cornell-rhizome-node.is-hovered {
+    transform: translateY(-3px) scale(1.05);
+    z-index: 10;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.4) !important;
+}
+
+/* Efecto para las notas conectadas en el otro extremo del tiempo */
+.cornell-rhizome-node.is-connected {
+    transform: scale(1.02);
+    border-color: var(--interactive-accent) !important;
+    box-shadow: 0 0 20px var(--interactive-accent) !important;
+    z-index: 9;
+}
+
+@keyframes cornell-flow {
+    to { stroke-dashoffset: -100; }
+}
+
+/* --- CONTROLES DE ZOOM --- */
+.cornell-rhizome-zoom-controls {
+    position: absolute;
+    bottom: 30px;
+    right: 30px;
+    display: flex;
+    gap: 8px;
+    background: var(--background-secondary);
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--background-modifier-border);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    z-index: 100; /* Siempre por encima de todo */
+}
+
+.cornell-rhizome-zoom-controls button {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 0.85em;
+    font-weight: bold;
+    transition: all 0.2s ease;
+}
+
+.cornell-rhizome-zoom-controls button:hover {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    transform: translateY(-2px);
+}
+
+/* El nuevo contenedor interno flex */
+.cornell-rhizome-content {
+    display: flex;
+    gap: 60px;
+    align-items: flex-start;
+    transform-origin: top left; /* El zoom se hace desde la esquina superior izquierda */
+    transition: zoom 0.2s ease; /* Animación fluida al hacer clic en los botones */
+}
+
+/* ======================================================
+   🎯 MODO FOCO SEMÁNTICO & BOTONERA DE ACCIONES (COSIDO)
+   ====================================================== */
+
+/* Ocultar tarjetas que no están en el foco */
+.cornell-rhizome-node.is-dimmed {
+    display: none !important;
+}
+
+/* Ocultar columnas de días que se quedaron vacías */
+.cornell-rhizome-day-column.is-empty {
+    display: none !important;
+}
+
+/* 🛠️ NUEVA BOTONERA MÚLTIPLE (Reemplaza al viejo cornell-focus-btn) */
+.cornell-rhizome-actions {
+    position: absolute;
+    top: 5px; right: 5px;
+    display: flex; gap: 4px;
+    opacity: 0; transition: opacity 0.2s ease;
+    z-index: 20;
+}
+
+.cornell-rhizome-node:hover .cornell-rhizome-actions {
+    opacity: 1; 
+}
+
+.cornell-action-btn {
+    width: 24px; height: 24px;
+    background: var(--background-modifier-hover);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.cornell-action-btn:hover {
+    color: var(--interactive-accent);
+    background: var(--background-primary);
+    transform: scale(1.1);
+}
+
+.cornell-action-btn svg { width: 14px; height: 14px; }
+
+/* Efecto Mágico: Cuando seleccionas una nota como origen del cosido */
+.cornell-rhizome-node.is-stitching-source {
+    border-color: var(--color-blue) !important;
+    box-shadow: 0 0 20px var(--color-blue) !important;
+    transform: scale(1.05);
+    z-index: 10;
+}
+
+/* Cartel Flotante del Modo Cosido */
+.cornell-rhizome-stitch-banner {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-blue);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 30px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    z-index: 1000;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    animation: cornell-pop-up 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.cornell-stitch-cancel {
+    background: rgba(0,0,0,0.2) !important;
+    color: white !important;
+    border: none !important;
+    cursor: pointer;
+    padding: 4px 12px !important;
+    border-radius: 15px !important;
+}
+
+.cornell-stitch-cancel:hover {
+    background: rgba(0,0,0,0.4) !important;
+}
+
+@keyframes cornell-pop-up {
+    0% { transform: translate(-50%, 20px); opacity: 0; }
+    100% { transform: translate(-50%, 0); opacity: 1; }
+}
+
+/* Banner superior cuando el Modo Foco está activo */
+.cornell-focus-banner {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--background-secondary);
+    border: 1px solid var(--interactive-accent);
+    color: var(--text-normal);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 1000;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.cornell-focus-exit-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 2px;
+}
+
+.cornell-focus-exit-btn:hover {
+    color: var(--text-error);
+}
+/* ======================================================
+   🔥 MODO REVISIÓN (SRS HEATMAP CONTROLS)
+   ====================================================== */
+
+.cornell-rhizome-zoom-controls button.is-reviewing {
+    background-color: var(--color-orange);
+    color: white;
+    border-color: var(--color-orange);
+}
+
+.cornell-srs-controls {
+    display: flex;
+    gap: 6px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--background-modifier-border);
+}
+
+.cornell-srs-controls button {
+    flex: 1;
+    font-size: 0.7em;
+    font-weight: bold;
+    padding: 6px 4px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.2s ease;
+    background: var(--background-primary-alt);
+}
+
+.cornell-srs-controls button.srs-hard {
+    color: var(--color-red);
+    background: rgba(var(--color-red-rgb), 0.1);
+}
+
+.cornell-srs-controls button.srs-good {
+    color: var(--color-orange);
+    background: rgba(var(--color-orange-rgb), 0.1);
+}
+
+.cornell-srs-controls button.srs-easy {
+    color: var(--color-green);
+    background: rgba(var(--color-green-rgb), 0.1);
+}
+
+.cornell-srs-controls button:hover {
+    transform: scale(1.05);
+    filter: brightness(1.2);
+}
+
+/* ======================================================
+   🔍 BARRA SUPERIOR DE FILTROS (MÁQUINA DEL TIEMPO)
+   ====================================================== */
+.cornell-rhizome-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.cornell-rhizome-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+    background-color: var(--background-secondary);
+    border-bottom: 1px solid var(--background-modifier-border);
+    z-index: 100;
+    flex-shrink: 0;
+}
+
+.cornell-rhizome-topbar .cornell-search-wrapper {
+    margin-bottom: 0;
+    max-width: 300px;
+}
+
+.cornell-rhizome-filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 0.85em;
+    transition: all 0.2s ease;
+    box-shadow: none;
+}
+
+.cornell-rhizome-filter-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.cornell-rhizome-filter-btn.is-active {
+    background: rgba(var(--interactive-accent), 0.1);
+    border-color: var(--interactive-accent);
+    color: var(--interactive-accent);
+}
+
+.cornell-spin {
+    animation: cornell-spin-anim 1s linear infinite;
+}
+
+@keyframes cornell-spin-anim { 
+    100% { transform: rotate(360deg); } 
+}
+
+/* ======================================================
+   🌌 FONDO CUSTOMIZABLE PARA LA MÁQUINA DEL TIEMPO
+   ====================================================== */
+
+.cornell-rhizome-wrapper {
+    position: relative;
+    overflow: hidden; /* Evita que el fondo se desborde */
+}
+
+/* La imagen de fondo pura */
+.cornell-rhizome-custom-bg {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    z-index: 0;
+    pointer-events: none; /* Te permite hacer clic a través de ella */
+    
+}
+
+/* 💎 MAGIA: Si hay fondo, el canvas se vuelve transparente, 
+   pero CONSERVA los puntos de radial-gradient por defecto */
+.cornell-rhizome-canvas.has-custom-bg {
+    background-color: transparent !important;
+    z-index: 1; /* Sube por encima del fondo */
+}
+
+/* 💎 EFECTO CRISTAL (Glassmorphism) para la barra superior */
+.cornell-rhizome-wrapper:has(.cornell-rhizome-custom-bg) .cornell-rhizome-topbar {
+    background: rgba(var(--background-secondary-rgb), 0.5) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }

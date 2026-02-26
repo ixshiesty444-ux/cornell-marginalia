@@ -5,6 +5,7 @@ import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetTy
 // 👇 IMPORTAMOS NUESTRO NUEVO ADDON
 import { GamificationAddon } from "./addons/GamificationAddon";
 import { CustomBackgroundAddon } from "./addons/CustomBackgroundAddon";
+import { RhizomeAddon, RHIZOME_VIEW_TYPE } from "./addons/RhizomeAddon";
 
 // --- ESTRUCTURAS ---
 interface CornellTag {
@@ -23,6 +24,12 @@ export interface UserStats {
     customBackground: string;
     bgBlur: number;
     bgOpacity: number;
+    // 👇 NUEVA MEMORIA PARA LA MÁQUINA DEL TIEMPO
+    rhizomeReviews: Record<string, { 
+        lastReviewed: number; // Fecha en milisegundos
+        interval: number;     // Días hasta la próxima revisión
+        ease: number;         // Factor de facilidad (Algoritmo SM-2 de Anki)
+    }>;
 }
 
 interface CornellSettings {
@@ -89,7 +96,8 @@ const DEFAULT_SETTINGS: CornellSettings = {
     // 👇 LOS VALORES POR DEFECTO PARA LOS NUEVOS USUARIOS
     addons: {
         "gamification-profile": false, // Por defecto viene apagado
-        "custom-background": false
+        "custom-background": false,
+        "rhizome-time-machine": false
     },
     userStats: {
         xp: 0,
@@ -97,7 +105,8 @@ const DEFAULT_SETTINGS: CornellSettings = {
         marginaliasCreated: 0,
         colorUsage: {},
         profileImage: "", quote: "Stay curious.",
-        customBackground: "", bgBlur: 5, bgOpacity: 0.8
+        customBackground: "", bgBlur: 5, bgOpacity: 0.8,
+        rhizomeReviews: {}
     }
 }
 
@@ -3706,6 +3715,8 @@ class CornellSettingTab extends PluginSettingTab {
         containerEl.createEl('h3', { text: 'Advanced' });
         new Setting(containerEl).setName('Ignored Folders').addTextArea(t => t.setValue(this.plugin.settings.ignoredFolders).onChange(async v => { this.plugin.settings.ignoredFolders = v; await this.plugin.saveSettings(); this.plugin.app.workspace.updateOptions(); }));
     
+
+
     // --- 🧩 SECCIÓN DE ADDONS ---
         containerEl.createEl('h3', { text: '🧩 Addons & Modules' });
 
@@ -3767,10 +3778,857 @@ class CornellSettingTab extends PluginSettingTab {
                     this.plugin.settings.userStats.bgOpacity = value; await this.plugin.saveSettings(); this.plugin.backgroundAddon.applyStyles();
                 }));
             } 
+    // --- ADDON: MÁQUINA DEL TIEMPO (RIZOMA) ---
+            new Setting(containerEl)
+                .setName('🌱 Time Machine & Rhizome')
+                .setDesc('Explore your marginaliae on a chronological, full-screen interactive canvas with spaced repetition.')
+                .addToggle(toggle => toggle
+                    .setValue(this.plugin.settings.addons["rhizome-time-machine"])
+                    .onChange(async (value) => {
+                        this.plugin.settings.addons["rhizome-time-machine"] = value;
+                        await this.plugin.saveSettings();
+                        if (value) { 
+                            this.plugin.rhizomeAddon.load(); 
+                            new Notice("🌱 Time Machine Enabled! Check the left ribbon.");
+                        } else { 
+                            this.plugin.rhizomeAddon.unload(); 
+                        }
+                    })
+                );
+            // --- 🌌 FONDO DE LA MÁQUINA DEL TIEMPO ---
+            new Setting(containerEl)
+                .setName('🌌 Time Machine Wallpaper URL')
+                .setDesc('Pega un enlace directo a una imagen (jpg, png, gif) para el fondo de tu máquina del tiempo.')
+                .addText(text => text
+                    .setPlaceholder('https://ejemplo.com/fondo.jpg')
+                    // Usamos || "" como seguro por si la variable aún no existe
+                    .setValue((this.plugin.settings as any).rhizomeBgImage || "") 
+                    .onChange(async (value) => {
+                        (this.plugin.settings as any).rhizomeBgImage = value;
+                        await this.plugin.saveSettings();
+                    })
+                );
+
+            new Setting(containerEl)
+                .setName('🌌 Wallpaper Opacity')
+                .setDesc('Ajusta la transparencia del fondo para que no interfiera con tus notas (0.1 a 1.0).')
+                .addSlider(slider => slider
+                    .setLimits(0.1, 1.0, 0.1)
+                    .setValue((this.plugin.settings as any).rhizomeBgOpacity || 0.3)
+                    .setDynamicTooltip()
+                    .onChange(async (value) => {
+                        (this.plugin.settings as any).rhizomeBgOpacity = value;
+                        await this.plugin.saveSettings();
+                    })
+                );
+            new Setting(containerEl)
+                .setName('🌌 Wallpaper Blur (Desenfoque)')
+                .setDesc('Aplica un efecto de desenfoque al fondo para que tus notas resalten más (0px a 20px).')
+                .addSlider(slider => slider
+                    .setLimits(0, 20, 1)
+                    .setValue((this.plugin.settings as any).rhizomeBgBlur !== undefined ? (this.plugin.settings as any).rhizomeBgBlur : 2)
+                    .setDynamicTooltip()
+                    .onChange(async (value) => {
+                        (this.plugin.settings as any).rhizomeBgBlur = value;
+                        await this.plugin.saveSettings();
+                    })
+                );
+    
     }
 
 }
 
+// --- 🕰️ LIENZO DE LA MÁQUINA DEL TIEMPO (RHIZOME) ---
+// ... (Tus importaciones y settings arriba quedan igual)
+
+export class RhizomeView extends ItemView {
+    plugin: CornellMarginalia;
+    isReviewMode: boolean = false; 
+    isStitchingMode: boolean = false;
+    sourceStitchItem: any = null;
+
+    // 🔍 NUEVOS ESTADOS DE FILTRO Y CACHÉ
+    searchQuery: string = '';
+    activeColorFilters: Set<string> = new Set();
+    showOnlyFlashcards: boolean = false;
+    cachedTimelineData: Record<string, any[]> = {};
+    allCachedNodes: any[] = [];
+    
+    topBarEl!: HTMLElement;
+    canvasEl!: HTMLElement;
+
+    constructor(leaf: WorkspaceLeaf, plugin: CornellMarginalia) {
+        super(leaf);
+        this.plugin = plugin;
+    }
+
+    getViewType() { return RHIZOME_VIEW_TYPE; }
+    getDisplayText() { return "Rhizome Time Machine"; }
+    getIcon() { return "git-commit-vertical"; }
+
+    async onOpen() {
+        const container = this.containerEl.children[1] as HTMLElement;
+        container.empty();
+        
+        // 🛡️ PARCHE DE MEMORIA
+        if (!this.plugin.settings.userStats) {
+            this.plugin.settings.userStats = { xp: 0, level: 1, marginaliasCreated: 0, colorUsage: {}, profileImage: "", quote: "Stay curious.", customBackground: "", bgBlur: 5, bgOpacity: 0.8, rhizomeReviews: {} };
+        }
+        if (!this.plugin.settings.userStats.rhizomeReviews) {
+            this.plugin.settings.userStats.rhizomeReviews = {};
+        }
+
+        const wrapper = container.createDiv({ cls: 'cornell-rhizome-wrapper' });
+        
+        this.topBarEl = wrapper.createDiv({ cls: 'cornell-rhizome-topbar' });
+        this.canvasEl = wrapper.createDiv({ cls: 'cornell-rhizome-canvas' });
+        this.canvasEl.style.flexGrow = '1';
+        this.canvasEl.style.position = 'relative';
+        // 🌌 INYECTAR EL FONDO PERSONALIZADO
+        const bgUrl = (this.plugin.settings as any).rhizomeBgImage;
+        if (bgUrl && bgUrl.trim() !== "") {
+            const customBg = wrapper.createDiv({ cls: 'cornell-rhizome-custom-bg' });
+            customBg.style.backgroundImage = `url("${bgUrl}")`;
+            customBg.style.opacity = ((this.plugin.settings as any).rhizomeBgOpacity || 0.3).toString();
+            // Le aplicamos el nivel de blur del usuario
+            const blurValue = (this.plugin.settings as any).rhizomeBgBlur !== undefined ? (this.plugin.settings as any).rhizomeBgBlur : 2;
+            customBg.style.filter = `blur(${blurValue}px)`;
+            
+            // Lo movemos al fondo absoluto de la capa
+            wrapper.prepend(customBg);
+            // Le avisamos al canvas que se vuelva de cristal
+            this.canvasEl.classList.add('has-custom-bg');
+        }
+
+        this.renderTopBar();
+
+        this.canvasEl.createEl("h2", { 
+            text: "⏳ Viajando en el tiempo... (Escaneando bóveda)",
+            attr: { style: "color: var(--text-muted); text-align: center; margin-top: 20%;" }
+        });
+
+        await this.scanVault();
+        this.renderTimeline();
+    }
+
+    renderTopBar() {
+        this.topBarEl.empty();
+        
+        // 1. Buscador Inteligente
+        const searchWrapper = this.topBarEl.createDiv({ cls: 'cornell-search-wrapper' });
+        const searchIconEl = searchWrapper.createSpan({ cls: 'cornell-search-icon' });
+        setIcon(searchIconEl, 'search');
+        const searchInput = searchWrapper.createEl('input', { type: 'text', placeholder: 'Search timeline...', cls: 'cornell-search-bar' });
+        searchInput.value = this.searchQuery;
+        
+        searchInput.oninput = (e) => {
+            this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase();
+            this.renderTimeline(); 
+        };
+
+        // 2. Filtro de Flashcards
+        const flashcardBtn = this.topBarEl.createEl('button', { 
+            title: 'Show only Flashcards (;;)', 
+            cls: 'cornell-rhizome-filter-btn' + (this.showOnlyFlashcards ? ' is-active' : '')
+        });
+        setIcon(flashcardBtn, 'layers');
+        flashcardBtn.createSpan({ text: 'Flashcards' });
+        flashcardBtn.onclick = () => {
+            this.showOnlyFlashcards = !this.showOnlyFlashcards;
+            flashcardBtn.classList.toggle('is-active', this.showOnlyFlashcards);
+            this.renderTimeline();
+        };
+
+        // 3. Filtro de Colores (Píldoras)
+        const pillsContainer = this.topBarEl.createDiv({ cls: 'cornell-color-pills' });
+        this.plugin.settings.tags.forEach(tag => {
+            const pill = pillsContainer.createEl('span', { cls: 'cornell-color-pill' });
+            pill.style.backgroundColor = tag.color;
+            pill.title = `Filter ${tag.prefix}`;
+            if (this.activeColorFilters.has(tag.color)) pill.addClass('is-active');
+            pill.onclick = () => {
+                if (this.activeColorFilters.has(tag.color)) {
+                    this.activeColorFilters.delete(tag.color);
+                    pill.removeClass('is-active');
+                } else {
+                    this.activeColorFilters.add(tag.color);
+                    pill.addClass('is-active');
+                }
+                this.renderTimeline();
+            };
+        });
+
+        // 4. Botón de Recarga Manual
+        const refreshBtn = this.topBarEl.createEl('button', { title: 'Rescan Vault', cls: 'cornell-rhizome-filter-btn' });
+        setIcon(refreshBtn, 'refresh-cw');
+        refreshBtn.onclick = async () => {
+            const icon = refreshBtn.querySelector('svg');
+            if(icon) icon.classList.add('cornell-spin');
+            await this.scanVault();
+            this.renderTimeline();
+            if(icon) icon.classList.remove('cornell-spin');
+            new Notice("Timeline rescanned!");
+        };
+    }
+
+    async scanVault() {
+        const files = this.plugin.app.vault.getMarkdownFiles();
+        this.cachedTimelineData = {}; 
+        this.allCachedNodes = [];
+
+        for (const file of files) {
+            if (this.plugin.settings.ignoredFolders && file.path.includes(this.plugin.settings.ignoredFolders)) continue;
+
+            const content = await this.plugin.app.vault.cachedRead(file);
+            const lines = content.split('\n');
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const regex = /%%[><](.*?)%%/g;
+                let match;
+
+                while ((match = regex.exec(line)) !== null) {
+                    let rawText = match[1].trim();
+                    if (!rawText) continue;
+
+                    let isFlashcard = false;
+                    if (rawText.endsWith(";;")) {
+                        isFlashcard = true;
+                        rawText = rawText.slice(0, -2).trim();
+                    }
+
+                    let color = "var(--text-normal)";
+                    for (const tag of this.plugin.settings.tags) {
+                        if (rawText.startsWith(tag.prefix)) {
+                            color = tag.color; break;
+                        }
+                    }
+
+                    const date = new Date(file.stat.ctime);
+                    const dateString = date.toISOString().split('T')[0];
+
+                    if (!this.cachedTimelineData[dateString]) this.cachedTimelineData[dateString] = [];
+
+                    const blockIdMatch = line.match(/\^([a-zA-Z0-9]+)\s*$/);
+                    const blockId = blockIdMatch ? blockIdMatch[1] : null;
+
+                    const linkRegex = /(?<!!)\[\[(.*?)\]\]/g;
+                    const outgoingLinks = [];
+                    let linkMatch;
+                    while ((linkMatch = linkRegex.exec(rawText)) !== null) {
+                        outgoingLinks.push(linkMatch[1]);
+                    }
+
+                    const nodeData = {
+                        text: rawText,
+                        color: color,
+                        file: file,
+                        line: i,
+                        blockId: blockId,
+                        outgoingLinks: outgoingLinks,
+                        id: blockId ? blockId : `${file.basename}-L${i}`,
+                        isFlashcard: isFlashcard
+                    };
+
+                    this.cachedTimelineData[dateString].push(nodeData);
+                    this.allCachedNodes.push(nodeData);
+                }
+            }
+        }
+    }
+
+    renderTimeline(ignoredCanvas?: HTMLElement) {
+        const canvas = this.canvasEl;
+        canvas.empty();
+
+        // 🔍 APLICAR FILTROS EN LA RAM (Instantáneo)
+        const timelineData: Record<string, any[]> = {};
+        const searchLower = this.searchQuery.toLowerCase();
+        const onlyFc = this.showOnlyFlashcards;
+        const activeColors = this.activeColorFilters;
+
+        for (const date in this.cachedTimelineData) {
+            const filteredNodes = this.cachedTimelineData[date].filter(item => {
+                const matchesSearch = item.text.toLowerCase().includes(searchLower) || item.file.basename.toLowerCase().includes(searchLower);
+                const matchesColor = activeColors.size === 0 || activeColors.has(item.color);
+                const matchesFc = !onlyFc || item.isFlashcard;
+                return matchesSearch && matchesColor && matchesFc;
+            });
+            if (filteredNodes.length > 0) {
+                timelineData[date] = filteredNodes;
+            }
+        }
+        
+        const allNodes = this.allCachedNodes;
+
+        // 🔍 CONTROLES DE ZOOM Y MODO REVISIÓN
+        let currentZoom = 1;
+        const zoomControls = canvas.createDiv({ cls: 'cornell-rhizome-zoom-controls' });
+        
+        const reviewBtn = zoomControls.createEl('button', { 
+            text: this.isReviewMode ? '🔥 Heatmap (Review)' : '🧠 Study Mode',
+            cls: this.isReviewMode ? 'is-reviewing' : '' 
+        });
+        reviewBtn.onclick = () => {
+            this.isReviewMode = !this.isReviewMode;
+            this.renderTimeline(); 
+        };
+
+        const zoomOutBtn = zoomControls.createEl('button', { text: '-' });
+        const zoomResetBtn = zoomControls.createEl('button', { text: '100%' });
+        const zoomInBtn = zoomControls.createEl('button', { text: '+' });
+
+        const scrollContainer = canvas.createDiv({ cls: 'cornell-rhizome-scroll' });
+        const contentContainer = scrollContainer.createDiv({ cls: 'cornell-rhizome-content' }); 
+
+        const applyZoom = () => {
+            contentContainer.style.setProperty('zoom', currentZoom.toString());
+            zoomResetBtn.innerText = `${Math.round(currentZoom * 100)}%`;
+        };
+
+        zoomInBtn.onclick = () => { currentZoom = Math.min(currentZoom + 0.2, 2.5); applyZoom(); };
+        zoomOutBtn.onclick = () => { currentZoom = Math.max(currentZoom - 0.2, 0.2); applyZoom(); };
+        zoomResetBtn.onclick = () => { currentZoom = 1; applyZoom(); };
+
+        scrollContainer.addEventListener('wheel', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                if (e.deltaY < 0) currentZoom = Math.min(currentZoom + 0.1, 2.5);
+                else currentZoom = Math.max(currentZoom - 0.1, 0.2);
+                applyZoom();
+            }
+        });
+
+        const svgOverlay = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svgOverlay.classList.add("cornell-rhizome-svg-overlay");
+        contentContainer.appendChild(svgOverlay); 
+
+        const sortedDates = Object.keys(timelineData).sort();
+        if (sortedDates.length === 0) {
+            contentContainer.createEl("h3", { text: "🔍 No matching notes found.", attr: { style: "margin: auto;"} });
+            return;
+        }
+
+        const domNodesMap = new Map<string, HTMLElement>();
+
+        for (const date of sortedDates) {
+            const dayColumn = contentContainer.createDiv({ cls: 'cornell-rhizome-day-column' });
+            dayColumn.createDiv({ cls: 'cornell-rhizome-date-label', text: date });
+            const nodesContainer = dayColumn.createDiv({ cls: 'cornell-rhizome-nodes' });
+
+            for (const item of timelineData[date]) {
+                const node = nodesContainer.createDiv({ cls: 'cornell-rhizome-node' });
+                node.id = item.id; 
+                
+                if (item.isFlashcard) {
+                    const fcIcon = node.createSpan({ text: '⚡ ', title: 'Flashcard' });
+                    fcIcon.style.opacity = '0.7';
+                    fcIcon.style.fontSize = '1.1em';
+                }
+
+                // 🔥 ALGORITMO MAPA DE CALOR
+                const reviewData = this.plugin.settings.userStats.rhizomeReviews[item.id] || { lastReviewed: 0, interval: 0, ease: 2.5 };
+                const now = Date.now();
+                const msInDay = 24 * 60 * 60 * 1000;
+                const nextReviewDate = reviewData.lastReviewed + (reviewData.interval * msInDay);
+                
+                let isDue = false;
+                let heatmapColor = "";
+
+                if (reviewData.lastReviewed === 0) {
+                    heatmapColor = "#ff4d4d"; 
+                    isDue = true;
+                } else if (now >= nextReviewDate) {
+                    heatmapColor = "#ff9900"; 
+                    isDue = true;
+                } else {
+                    heatmapColor = "#00cc66"; 
+                }
+
+                if (this.isReviewMode) {
+                    node.style.borderColor = heatmapColor;
+                    node.style.boxShadow = `0 4px 15px ${heatmapColor}30`;
+                } else {
+                    node.style.borderColor = item.color;
+                    node.style.boxShadow = `0 4px 15px ${item.color}20`;
+                }
+
+                const exactKey = `${item.file.basename}#^${item.blockId}`;
+                const fileKey = item.file.basename;
+                if (item.blockId) domNodesMap.set(exactKey, node);
+                if (!domNodesMap.has(fileKey)) domNodesMap.set(fileKey, node);
+
+                let cleanText = item.text.replace(/^[!?XV-]+\s*/, '');
+                const imagesToRender: string[] = [];
+                const imgRegex = /img:\s*\[\[(.*?)\]\]/gi;
+                const imgMatches = Array.from(cleanText.matchAll(imgRegex)) as RegExpMatchArray[];
+                imgMatches.forEach(m => imagesToRender.push(m[1]));
+                cleanText = cleanText.replace(imgRegex, '').trim();
+                const threadRegex = /(?<!!)\[\[(.*?)\]\]/g;
+                cleanText = cleanText.replace(threadRegex, '').trim();
+
+                if (cleanText) {
+                    node.createEl("span", { text: cleanText.length > 130 ? cleanText.substring(0, 130) + "..." : cleanText });
+                }
+
+                if (imagesToRender.length > 0) {
+                    const imgContainer = node.createDiv({ cls: 'cornell-rhizome-images' });
+                    imagesToRender.forEach(imgName => {
+                        const cleanName = imgName.split('|')[0];
+                        const file = this.plugin.app.metadataCache.getFirstLinkpathDest(cleanName, item.file.path);
+                        if (file) {
+                            const imgSrc = this.plugin.app.vault.getResourcePath(file);
+                            const imgEl = imgContainer.createEl('img', { attr: { src: imgSrc } });
+                            imgEl.style.maxHeight = '120px';
+                            imgEl.style.maxWidth = '100%';
+                            imgEl.style.objectFit = 'contain';
+                            imgEl.style.borderRadius = '4px';
+                            imgEl.style.marginTop = '8px';
+                            imgEl.style.display = 'block';
+                            imgEl.style.background = 'transparent';
+                        }
+                    });
+                }
+
+                if (this.isReviewMode && isDue) {
+                    const gradeContainer = node.createDiv({ cls: 'cornell-srs-controls' });
+                    const btnHard = gradeContainer.createEl('button', { text: 'Hard', cls: 'srs-hard' });
+                    const btnGood = gradeContainer.createEl('button', { text: 'Good', cls: 'srs-good' });
+                    const btnEasy = gradeContainer.createEl('button', { text: 'Easy', cls: 'srs-easy' });
+
+                    const processGrade = async (grade: 'hard' | 'good' | 'easy', e: MouseEvent) => {
+                        e.stopPropagation();
+                        let { interval, ease } = reviewData;
+                        
+                        if (grade === 'hard') {
+                            interval = Math.max(1, interval * 0.5);
+                            ease = Math.max(1.3, ease - 0.2);
+                        } else if (grade === 'good') {
+                            interval = interval === 0 ? 1 : interval * ease;
+                        } else if (grade === 'easy') {
+                            interval = interval === 0 ? 4 : interval * ease * 1.3;
+                            ease += 0.15;
+                        }
+                        
+                        this.plugin.settings.userStats.rhizomeReviews[item.id] = {
+                            lastReviewed: Date.now(),
+                            interval: interval,
+                            ease: ease
+                        };
+                        
+                        await this.plugin.saveSettings();
+                        
+                        node.style.borderColor = "#00cc66"; 
+                        node.style.boxShadow = `0 4px 15px #00cc6640`;
+                        gradeContainer.remove(); 
+                        new Notice(`Brain synced! Next review in ${Math.round(interval)} days. 🧠`);
+                    };
+
+                    btnHard.onclick = (e) => processGrade('hard', e);
+                    btnGood.onclick = (e) => processGrade('good', e);
+                    btnEasy.onclick = (e) => processGrade('easy', e);
+                }
+
+                const actionsDiv = node.createDiv({ cls: 'cornell-rhizome-actions' });
+                
+                const stitchBtn = actionsDiv.createDiv({ cls: 'cornell-action-btn' });
+                setIcon(stitchBtn, 'link');
+                stitchBtn.title = "Stitch (Connect) to another note";
+                stitchBtn.onClickEvent((e) => {
+                    e.stopPropagation();
+                    this.handleStitchClick(item, node, canvas);
+                });
+
+                const focusBtn = actionsDiv.createDiv({ cls: 'cornell-action-btn' });
+                setIcon(focusBtn, 'focus'); 
+                focusBtn.title = "Focus on semantic cluster";
+                focusBtn.onClickEvent((e) => {
+                    e.stopPropagation(); 
+                    this.activateFocusMode(item.id, allNodes, domNodesMap, canvas);
+                });
+
+                node.onClickEvent(() => {
+                    this.plugin.app.workspace.getLeaf(false).openFile(item.file, { eState: { line: item.line } });
+                });
+
+                let hoverTimeout: NodeJS.Timeout | null = null;
+                let tooltipEl: HTMLElement | null = null;
+                let isHovering = false; 
+
+                const removeTooltip = () => {
+                    isHovering = false; 
+                    if (hoverTimeout) clearTimeout(hoverTimeout);
+                    if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
+                    document.querySelectorAll('.cornell-hover-tooltip').forEach(el => el.remove());
+                };
+
+                node.addEventListener('mouseenter', (e: MouseEvent) => {
+                    isHovering = true;
+                    hoverTimeout = setTimeout(async () => {
+                        if (!isHovering) return; 
+                        const content = await this.plugin.app.vault.cachedRead(item.file);
+                        if (!isHovering || !document.body.contains(node)) return;
+
+                        const lines = content.split('\n');
+                        const startLine = Math.max(0, item.line - 1);
+                        const endLine = Math.min(lines.length - 1, item.line + 1);
+                        
+                        removeTooltip(); 
+
+                        let rawBlock = '';
+                        for (let i = startLine; i <= endLine; i++) {
+                            let cleanLine = lines[i].replace(/%%[><](.*?)%%/g, '').trim();
+                            if (cleanLine) {
+                                if (i === item.line) rawBlock += `==${cleanLine}==\n`; 
+                                else rawBlock += `${cleanLine}\n`;
+                            }
+                        }
+
+                        const pdfRegex = /!*\[\[(.*?\.(?:pdf).*?)\]\]/i;
+                        const pdfMatch = rawBlock.match(pdfRegex);
+                        if (pdfMatch) {
+                            this.plugin.app.workspace.trigger('hover-link', {
+                                event: e, source: 'preview', hoverParent: node,
+                                targetEl: node, linktext: pdfMatch[1], sourcePath: item.file.path
+                            });
+                            return; 
+                        }
+
+                        tooltipEl = document.createElement('div');
+                        tooltipEl.className = 'popover hover-popover cornell-hover-tooltip markdown-rendered markdown-preview-view'; 
+                        tooltipEl.style.position = 'fixed'; 
+                        tooltipEl.style.zIndex = '99999';
+                        tooltipEl.style.width = '450px'; 
+                        tooltipEl.style.maxHeight = '350px'; 
+                        tooltipEl.style.overflowY = 'auto'; 
+                        tooltipEl.style.backgroundColor = 'var(--background-primary)';
+                        tooltipEl.style.border = '1px solid var(--background-modifier-border)';
+                        tooltipEl.style.boxShadow = '0 10px 20px rgba(0,0,0,0.3)';
+                        tooltipEl.style.borderRadius = '8px';
+                        tooltipEl.style.padding = '12px';
+                        tooltipEl.style.display = 'flex'; 
+                        tooltipEl.style.flexDirection = 'column'; 
+                        tooltipEl.style.gap = '8px'; 
+
+                        const header = tooltipEl.createDiv({ cls: 'cornell-hover-context' });
+                        header.innerHTML = `<span style="font-size: 1.1em; color: var(--text-normal); font-weight: bold; display: block; border-bottom: 1px solid var(--background-modifier-border); padding-bottom: 6px; width: 100%;">📄 ${item.file.basename} (L${item.line + 1})</span>`;
+                        const body = tooltipEl.createDiv();
+                        body.style.width = '100%'; 
+
+                        document.body.appendChild(tooltipEl);
+
+                        const rect = node.getBoundingClientRect();
+                        let leftPos = rect.right + 20; 
+                        if (leftPos + 450 > window.innerWidth) leftPos = rect.left - 470; 
+                        if (leftPos < 10) leftPos = 10;
+                        tooltipEl.style.left = `${leftPos}px`;
+                        
+                        let topPos = rect.top;
+                        if (topPos + 350 > window.innerHeight) topPos = window.innerHeight - 360;
+                        tooltipEl.style.top = `${Math.max(10, topPos)}px`;
+
+                        const inlineImgRegex = /!\[\[(.*?\.(?:png|jpg|jpeg|gif|bmp|svg))\|?(.*?)\]\]/gi;
+                        rawBlock = rawBlock.replace(inlineImgRegex, (match, filename) => {
+                            const file = this.plugin.app.metadataCache.getFirstLinkpathDest(filename.trim(), item.file.path);
+                            if (file) {
+                                const resourcePath = this.plugin.app.vault.getResourcePath(file);
+                                return `<img src="${resourcePath}" style="max-height:220px; max-width:100%; border-radius:6px; display:block; margin:8px auto;">`;
+                            }
+                            return match; 
+                        });
+
+                        if (!rawBlock.trim()) rawBlock = "*No text context available.*";
+                        
+                        // @ts-ignore
+                        await MarkdownRenderer.renderMarkdown(rawBlock, body, item.file.path, this);
+
+                        requestAnimationFrame(() => {
+                            if (tooltipEl) tooltipEl.addClass('is-visible');
+                        });
+                    }, 500); 
+                }); 
+
+                node.addEventListener('mouseleave', removeTooltip);
+            }
+        }
+
+        setTimeout(() => {
+            allNodes.forEach(sourceItem => {
+                const sourceNode = document.getElementById(sourceItem.id);
+                if (!sourceNode) return; 
+
+                sourceItem.outgoingLinks.forEach((link: string) => {
+                    let targetKey = link.split('|')[0].trim(); 
+                    let targetNode = domNodesMap.get(targetKey);
+
+                    if (targetNode && targetNode !== sourceNode) {
+                        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                        path.setAttribute("fill", "transparent");
+                        path.setAttribute("stroke", "var(--interactive-accent)");
+                        path.setAttribute("stroke-width", "2");
+                        path.classList.add("cornell-semantic-thread");
+                        
+                        path.setAttribute("data-source", sourceNode.id);
+                        path.setAttribute("data-target", targetNode.id);
+
+                        svgOverlay.appendChild(path);
+                    }
+                });
+            });
+
+            this.updatePathCoordinates(contentContainer, scrollContainer);
+            
+            const allPaths = document.querySelectorAll('.cornell-semantic-thread');
+            allPaths.forEach(path => {
+                path.classList.remove('is-visible');
+            });
+
+            const allDomNodes = document.querySelectorAll('.cornell-rhizome-node');
+            allDomNodes.forEach(node => {
+                node.addEventListener('mouseenter', () => {
+                    const currentId = node.id;
+                    node.classList.add('is-hovered');
+
+                    allPaths.forEach(path => {
+                        const src = path.getAttribute('data-source');
+                        const tgt = path.getAttribute('data-target');
+
+                        if (src === currentId || tgt === currentId) {
+                            path.classList.add('is-visible'); 
+                            const partnerId = (src === currentId) ? tgt : src;
+                            const partnerNode = document.getElementById(partnerId as string);
+                            if (partnerNode) partnerNode.classList.add('is-connected');
+                        }
+                    });
+                });
+
+                node.addEventListener('mouseleave', () => {
+                    const isFocusMode = document.querySelector('.cornell-focus-banner');
+                    if (!isFocusMode) {
+                        allPaths.forEach(path => path.classList.remove('is-visible'));
+                    }
+                    allDomNodes.forEach(n => {
+                        n.classList.remove('is-connected');
+                        n.classList.remove('is-hovered');
+                    });
+                });
+            });
+
+        }, 300);
+    }
+    // 🎯 MOTOR DEL MODO FOCO SEMÁNTICO
+    activateFocusMode(centerNodeId: string, allNodes: any[], domNodesMap: Map<string, HTMLElement>, canvas: HTMLElement) {
+        const allDomNodes = document.querySelectorAll('.cornell-rhizome-node');
+        const allColumns = document.querySelectorAll('.cornell-rhizome-day-column');
+        const allPaths = document.querySelectorAll('.cornell-semantic-thread');
+        
+        // Referencias a los contenedores para poder medir distancias
+        const scrollContainer = canvas.querySelector('.cornell-rhizome-scroll') as HTMLElement;
+        const contentContainer = canvas.querySelector('.cornell-rhizome-content') as HTMLElement;
+        
+        // 1. Encontrar todos los IDs que pertenecen a este clúster (el centro + sus conexiones)
+        const clusterIds = new Set<string>();
+        clusterIds.add(centerNodeId);
+
+        const centerNodeData = allNodes.find(n => n.id === centerNodeId);
+        if (centerNodeData) {
+            centerNodeData.outgoingLinks.forEach((link: string) => {
+                const targetKey = link.split('|')[0].trim();
+                const targetNode = domNodesMap.get(targetKey);
+                if (targetNode) clusterIds.add(targetNode.id);
+            });
+        }
+
+        allNodes.forEach(node => {
+            node.outgoingLinks.forEach((link: string) => {
+                const targetKey = link.split('|')[0].trim();
+                const targetNode = domNodesMap.get(targetKey);
+                if (targetNode && targetNode.id === centerNodeId) {
+                    clusterIds.add(node.id);
+                }
+            });
+        });
+
+        // 2. Ocultar tarjetas que NO están en el clúster
+        allDomNodes.forEach(node => {
+            if (!clusterIds.has(node.id)) {
+                node.classList.add('is-dimmed');
+            } else {
+                node.classList.remove('is-dimmed');
+            }
+        });
+
+        // 3. Ocultar columnas vacías
+        allColumns.forEach(col => {
+            const visibleNodes = col.querySelectorAll('.cornell-rhizome-node:not(.is-dimmed)');
+            if (visibleNodes.length === 0) {
+                col.classList.add('is-empty');
+            } else {
+                col.classList.remove('is-empty');
+            }
+        });
+
+        // 🚀 MAGIA: Le damos 150ms al navegador para que mueva las columnas y RECALCULAMOS LAS LÍNEAS
+        setTimeout(() => {
+            this.updatePathCoordinates(contentContainer, scrollContainer);
+            
+            // 4. Encendemos las líneas correctas después de reubicarlas
+            allPaths.forEach(path => {
+                const src = path.getAttribute('data-source');
+                const tgt = path.getAttribute('data-target');
+                if (src && tgt && (clusterIds.has(src) && clusterIds.has(tgt))) {
+                    path.classList.add('is-visible');
+                } else {
+                    path.classList.remove('is-visible');
+                }
+            });
+        }, 150);
+
+        // 5. Crear Banner de Salida
+        const existingBanner = canvas.querySelector('.cornell-focus-banner');
+        if (existingBanner) existingBanner.remove();
+
+        const banner = canvas.createDiv({ cls: 'cornell-focus-banner' });
+        const bannerIcon = banner.createSpan();
+        setIcon(bannerIcon, 'network');
+        banner.createSpan({ text: `Semantic Cluster (${clusterIds.size} notes)` });
+        
+        const exitBtn = banner.createEl('button', { cls: 'cornell-focus-exit-btn', title: 'Exit Focus Mode' });
+        setIcon(exitBtn, 'x');
+
+        exitBtn.onclick = () => {
+            // Restaurar todo a la normalidad
+            allDomNodes.forEach(n => n.classList.remove('is-dimmed'));
+            allColumns.forEach(c => c.classList.remove('is-empty'));
+            allPaths.forEach(p => p.classList.remove('is-visible'));
+            banner.remove();
+
+            // 🚀 MAGIA INVERSA: Volvemos a recalcular las líneas a sus posiciones originales
+            setTimeout(() => {
+                this.updatePathCoordinates(contentContainer, scrollContainer);
+            }, 150);
+        };
+    }
+
+    // 🕸️ MOTOR RE-CALCULADOR DE RUTAS SVG (Calcula la física real en vivo)
+    updatePathCoordinates(contentContainer: HTMLElement, scrollContainer: HTMLElement) {
+        const svgOverlay = contentContainer.querySelector('.cornell-rhizome-svg-overlay') as SVGSVGElement;
+        if (!svgOverlay) return;
+
+        // Recuperamos el valor real del zoom para no distorsionar las líneas
+        const currentZoom = parseFloat(contentContainer.style.getPropertyValue('zoom')) || 1;
+
+        svgOverlay.style.width = contentContainer.scrollWidth + "px";
+        svgOverlay.style.height = contentContainer.scrollHeight + "px";
+        
+        const containerRect = scrollContainer.getBoundingClientRect();
+
+        const allPaths = svgOverlay.querySelectorAll('.cornell-semantic-thread');
+        allPaths.forEach(path => {
+            const srcId = path.getAttribute('data-source');
+            const tgtId = path.getAttribute('data-target');
+            const sourceNode = document.getElementById(srcId as string);
+            const targetNode = document.getElementById(tgtId as string);
+
+            // Si las notas origen y destino están visibles en este momento
+            if (sourceNode && targetNode && !sourceNode.classList.contains('is-dimmed') && !targetNode.classList.contains('is-dimmed')) {
+                const sRect = sourceNode.getBoundingClientRect();
+                const tRect = targetNode.getBoundingClientRect();
+
+                // Matemáticas relativas al contenedor aplicando el nivel de zoom actual
+                const sX = ((sRect.right - containerRect.left + scrollContainer.scrollLeft) / currentZoom);
+                const sY = ((sRect.top + (sRect.height / 2) - containerRect.top + scrollContainer.scrollTop) / currentZoom);
+
+                const tX = ((tRect.left - containerRect.left + scrollContainer.scrollLeft) / currentZoom);
+                const tY = ((tRect.top + (tRect.height / 2) - containerRect.top + scrollContainer.scrollTop) / currentZoom);
+
+                const cp1X = sX + 50;
+                const cp1Y = sY;
+                const cp2X = tX - 50;
+                const cp2Y = tY;
+
+                path.setAttribute("d", `M ${sX} ${sY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${tX} ${tY}`);
+                (path as HTMLElement).style.display = 'block'; // Aseguramos que se muestre
+            } else {
+                (path as HTMLElement).style.display = 'none'; // Ocultamos las líneas que perdieron sus nodos
+            }
+        });
+    }
+    // ======================================================
+    // ⛓️ MOTOR DE COSIDO EN LA MÁQUINA DEL TIEMPO
+    // ======================================================
+    handleStitchClick(item: any, nodeEl: HTMLElement, canvas: HTMLElement) {
+        if (!this.isStitchingMode) {
+            // FASE 1: Seleccionamos el Origen
+            this.isStitchingMode = true;
+            this.sourceStitchItem = item;
+            nodeEl.classList.add('is-stitching-source');
+            
+            let banner = canvas.querySelector('.cornell-rhizome-stitch-banner');
+            if (!banner) {
+                banner = canvas.createDiv({ cls: 'cornell-rhizome-stitch-banner' });
+            }
+            banner.innerHTML = `<span>⛓︎ Step 2: Select destination note to connect with <b>${item.file.basename}</b>...</span>`;
+            
+            const cancelBtn = banner.createEl('button', { text: 'Cancel', cls: 'cornell-stitch-cancel' });
+            cancelBtn.onclick = () => this.cancelStitch(canvas);
+            
+            new Notice("Step 1: Origin selected. Click the Link icon on the destination note.");
+        } else {
+            // FASE 2: Seleccionamos el Destino y disparamos
+            if (this.sourceStitchItem.id === item.id) {
+                new Notice("Cannot connect a note to itself.");
+                this.cancelStitch(canvas);
+                return;
+            }
+            
+            this.executeStitch(this.sourceStitchItem, item).then(() => {
+                this.cancelStitch(canvas);
+                this.renderTimeline(canvas); // Recarga todo para dibujar el nuevo hilo láser
+            });
+        }
+    }
+
+    cancelStitch(canvas: HTMLElement) {
+        this.isStitchingMode = false;
+        this.sourceStitchItem = null;
+        document.querySelectorAll('.is-stitching-source').forEach(el => el.classList.remove('is-stitching-source'));
+        const banner = canvas.querySelector('.cornell-rhizome-stitch-banner');
+        if (banner) banner.remove();
+    }
+
+    async executeStitch(source: any, target: any) {
+        new Notice(`Stitching thread through time... ⏳⛓︎`);
+
+        // 1. Aseguramos que el destino tenga un ID (matrícula)
+        let targetId = target.blockId;
+        if (!targetId) {
+            targetId = Math.random().toString(36).substring(2, 8);
+            await this.plugin.app.vault.process(target.file, (data) => {
+                const lines = data.split('\n');
+                if (target.line >= 0 && target.line < lines.length) {
+                    if (!lines[target.line].match(/\^([a-zA-Z0-9]+)\s*$/)) {
+                        lines[target.line] = lines[target.line] + ` ^${targetId}`;
+                    }
+                }
+                return lines.join('\n');
+            });
+        }
+
+        // 2. Inyectamos el enlace silenciosamente en la nota original
+        const linkToInject = ` [[${target.file.basename}#^${targetId}]]`;
+        
+        await this.plugin.app.vault.process(source.file, (data) => {
+            const lines = data.split('\n');
+            if (source.line >= 0 && source.line < lines.length) {
+                lines[source.line] = lines[source.line].replace(source.text, source.text + linkToInject);
+            }
+            return lines.join('\n');
+        });
+
+        new Notice("✨ Conexión semántica establecida con éxito!");
+    }
+}
 
 
 // --- PLUGIN PRINCIPAL ---
@@ -3781,6 +4639,7 @@ export default class CornellMarginalia extends Plugin {
     // 👇 RESERVAMOS ESPACIO PARA EL ADDON DE GAMIFICACIÓN
     gamificationAddon!: GamificationAddon;
     backgroundAddon!: CustomBackgroundAddon;
+    rhizomeAddon!: RhizomeAddon;
 
    
     // 📁 MOTOR DE CREACIÓN DE CARPETAS
@@ -3814,6 +4673,17 @@ export default class CornellMarginalia extends Plugin {
         if (this.settings.addons && this.settings.addons["custom-background"]) {
             this.backgroundAddon.load();
         }
+
+        // maquina del tiempo rizomatica
+        // 1. Registramos la nueva ventana para que Obsidian sepa dibujarla
+        this.registerView(RHIZOME_VIEW_TYPE, (leaf) => new RhizomeView(leaf, this));
+
+        // 2. Encendemos el botón lateral si el usuario activó el addon
+        this.rhizomeAddon = new RhizomeAddon(this);
+        if (this.settings.addons && this.settings.addons["rhizome-time-machine"]) {
+            this.rhizomeAddon.load();
+        }
+
         // 👆 FIN DE LA CONEXIÓN DE ADDONS
 
         this.updateStyles(); 
