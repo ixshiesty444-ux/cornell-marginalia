@@ -183,46 +183,42 @@ body[style*="--cornell-float: right"] .reading-mode-margin.cornell-reverse-align
     border-left: none !important;
 }
 
-/* --- MODO ACTIVO (BLUR) PARA VISTA DE LECTURA --- */
+/* --- MODO ACTIVO (BLUR) DEFINITIVO V2 (SALVANDO LA MARGINALIA) --- */
 
-/* SOLO aplica el difuminado si el body tiene la clase activa */
-body.cornell-active-recall-on .cornell-flashcard-target {
+/* 1. Atacamos al texto base y a todos sus hijos EXCEPTO la marginalia y su contenido */
+body.cornell-active-recall-on .cornell-flashcard-target,
+body.cornell-active-recall-on .cornell-flashcard-target *:not(.cm-cornell-margin):not(.cm-cornell-margin *) {
     color: transparent !important;
-    text-shadow: 0 0 12px var(--text-normal);
+    text-shadow: 0 0 12px var(--text-normal) !important;
     cursor: help;
-    transition: all 0.3s ease;
+    transition: color 0.3s ease, text-shadow 0.3s ease;
 }
 
-/* Al pasar el mouse, revela el texto */
-body.cornell-active-recall-on .cornell-flashcard-target:hover {
-    color: var(--text-normal) !important;
-    text-shadow: none;
-}
-
-/* Proteger la marginalia para que la "pregunta" siga viéndose */
-body.cornell-active-recall-on .cornell-flashcard-target .cm-cornell-margin {
-    text-shadow: none !important;
-}
-
+/* 2. Escudo absoluto para la Marginalia (Quitamos la regla de color para que no herede la transparencia) */
+body.cornell-active-recall-on .cornell-flashcard-target .cm-cornell-margin,
 body.cornell-active-recall-on .cornell-flashcard-target .cm-cornell-margin * {
     text-shadow: none !important;
-    color: inherit !important;
+    filter: none !important;
+    opacity: 1 !important;
 }
 
-/*COMENTARIO*/
-/* --- ACTIVE RECALL BLUR (VERSIÓN BLOQUE/LÍNEA) --- */
-/* Se aplica a toda la línea contenedora */
-.cornell-blur {
-    color: transparent !important;
-    text-shadow: 0 0 12px var(--text-normal);
-    cursor: help;
-    transition: all 0.3s ease;
+/* 3. Parche LaTeX e Imágenes (Excluimos las imágenes que estén DENTRO de la marginalia por si acaso) */
+body.cornell-active-recall-on .cornell-flashcard-target mjx-container,
+body.cornell-active-recall-on .cornell-flashcard-target img:not(.cm-cornell-margin img) {
+    filter: blur(8px) opacity(0.6) !important;
+    transition: filter 0.3s ease, opacity 0.3s ease !important;
 }
 
-/* Al pasar el mouse por la línea, revelamos TODO el texto */
-.cornell-blur:hover {
+/* 4. Hover Reveal: Recuperamos la visión al pasar el mouse */
+body.cornell-active-recall-on .cornell-flashcard-target:hover,
+body.cornell-active-recall-on .cornell-flashcard-target:hover *:not(.cm-cornell-margin):not(.cm-cornell-margin *) {
     color: var(--text-normal) !important;
-    text-shadow: none;
+    text-shadow: none !important;
+}
+
+body.cornell-active-recall-on .cornell-flashcard-target:hover mjx-container,
+body.cornell-active-recall-on .cornell-flashcard-target:hover img:not(.cm-cornell-margin img) {
+    filter: blur(0px) opacity(1) !important;
 }
 
 
