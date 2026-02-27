@@ -1545,3 +1545,28 @@ input.cornell-search-bar:focus {
     from { transform: scale(0.9); opacity: 0; } 
     to { transform: scale(1); opacity: 1; } 
 }
+
+/* ======================================================
+   🎨 INVERSIÓN INTELIGENTE PARA DOODLES EN EL PANEL LATERAL (EXPLORER & BOARD)
+   ====================================================== */
+
+/* Apuntamos a las imágenes "doodle_" que viven dentro de las listas del panel lateral */
+body.theme-dark .cornell-sidebar-item img[src*="doodle_"],
+body.theme-dark .cornell-pinboard-item img[src*="doodle_"] {
+    /* Magia: Convierte la tinta negra en blanca */
+    filter: invert(1); 
+    
+    /* Suavizamos el blanco puro un 10% para que no lastime la vista en modo nocturno */
+    opacity: 0.9; 
+    
+    /* Transición suave por si el usuario cambia el tema de Obsidian en tiempo real */
+    transition: filter 0.3s ease, opacity 0.3s ease; 
+}
+
+/* 🧼 Limpieza de bordes: Aseguramos el efecto "Tinta sobre papel" en el panel */
+.cornell-sidebar-item img[src*="doodle_"],
+.cornell-pinboard-item img[src*="doodle_"] {
+    border: none !important; 
+    box-shadow: none !important;
+    background: transparent !important;
+}

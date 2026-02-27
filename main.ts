@@ -7,6 +7,152 @@ import { GamificationAddon } from "./addons/GamificationAddon";
 import { CustomBackgroundAddon } from "./addons/CustomBackgroundAddon";
 import { RhizomeAddon, RHIZOME_VIEW_TYPE } from "./addons/RhizomeAddon";
 
+
+// =================================================================
+// 🧠 EL CEREBRO PÚBLICO: OMNI CAPTURE MANAGER
+// =================================================================
+export interface CapturePayload {
+    thought: string;
+    destination: string;
+    doodleData: ArrayBuffer | null;
+}
+
+export class OmniCaptureManager {
+    public app: App;
+    public plugin: any; 
+    
+    // Memorias estáticas del portapapeles
+    static lastCapturedContext: string = "";
+    static lastCapturedImageLength: number = 0;
+
+    constructor(app: App, plugin: any) {
+        this.app = app;
+        this.plugin = plugin;
+    }
+
+    public openDoodle(): Promise<{ data: ArrayBuffer, isInstant: boolean }> {
+        return new Promise((resolve) => {
+            new SidebarDoodleModal(this.app, (arrayBuffer: ArrayBuffer, isInstant: boolean) => {
+                resolve({ data: arrayBuffer, isInstant });
+            }).open();
+        });
+    }
+
+    // 💾 AQUÍ VIVE TU VIEJA LÓGICA DE GUARDADO (Intacta y Desacoplada)
+    public async saveCapture(payload: CapturePayload, pendingClipboardImageData: ArrayBuffer | null = null, pendingClipboardImageExt: string = "png"): Promise<void> {
+        const thought = payload.thought;
+        let rawDestInput = payload.destination;
+
+        let cleanDestName = rawDestInput.replace(/^\d{12,14}\s*-\s*/, '').trim();
+        if (!cleanDestName) cleanDestName = "Marginalia Inbox";
+        let finalDestName = cleanDestName;
+
+        if (this.plugin.settings.zkMode) {
+            // @ts-ignore
+            const zkId = window.moment().format('YYYYMMDDHHmmss');
+            finalDestName = (cleanDestName !== "Marginalia Inbox") ? `${zkId} - ${cleanDestName}` : zkId;
+        }
+
+        // 1. AUTO-LECTURA DEL PORTAPAPELES
+        let context = "";
+        try {
+            const clipboardItems = await navigator.clipboard.read();
+            for (const item of clipboardItems) {
+                if (item.types.includes("text/plain")) {
+                    const blob = await item.getType("text/plain");
+                    const text = await blob.text();
+                    if (text && text !== OmniCaptureManager.lastCapturedContext) {
+                        context = text.trim();
+                        OmniCaptureManager.lastCapturedContext = context;
+                    }
+                }
+                const imageType = item.types.find((type: string) => type.startsWith("image/"));
+                if (imageType) {
+                    const blob = await item.getType(imageType);
+                    const buffer = await blob.arrayBuffer();
+                    if (buffer.byteLength !== OmniCaptureManager.lastCapturedImageLength) {
+                        pendingClipboardImageData = buffer;
+                        pendingClipboardImageExt = imageType.split('/')[1] || 'png';
+                        OmniCaptureManager.lastCapturedImageLength = buffer.byteLength;
+                    }
+                }
+            }
+        } catch (err) {
+            try {
+                const clipText = await navigator.clipboard.readText();
+                if (clipText && clipText !== OmniCaptureManager.lastCapturedContext) {
+                    context = clipText.trim();
+                    OmniCaptureManager.lastCapturedContext = context;
+                }
+            } catch (e) { }
+        }
+
+        if (!thought && !context && !payload.doodleData && !pendingClipboardImageData) {
+            new Notice("⚠️ Capture is empty!");
+            throw new Error("Empty capture");
+        }
+
+        // 2. PROCESAR IMÁGENES AL DISCO
+        let contextImageSyntax = "";
+        if (pendingClipboardImageData) {
+            // @ts-ignore
+            const dateStr = window.moment().format('YYYYMMDD_HHmmss');
+            const fileName = `clip_${dateStr}.${pendingClipboardImageExt}`;
+            let attachmentPath = fileName;
+            try { attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, ""); } catch (e) { }
+            await this.app.vault.createBinary(attachmentPath, pendingClipboardImageData);
+            contextImageSyntax = `![[${attachmentPath.split('/').pop()}]]`; 
+        }
+
+        let doodleSyntax = "";
+        if (payload.doodleData) {
+            // @ts-ignore
+            const dateStr = window.moment().format('YYYYMMDD_HHmmss');
+            const fileName = `doodle_${dateStr}.png`;
+            const folder = this.plugin.settings.doodleFolder.trim();
+            let attachmentPath = folder ? `${folder}/${fileName}` : fileName;
+            
+            if (folder) await this.plugin.ensureFolderExists(folder);
+            else { try { attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, ""); } catch (e) { } }
+            
+            await this.app.vault.createBinary(attachmentPath, payload.doodleData);
+            doodleSyntax = `img:[[${attachmentPath.split('/').pop()}]]`; 
+        }
+
+        // 3. ENSAMBLAJE DE MARKDOWN
+        let marginaliaContent = thought ? `${thought} ` : ""; 
+        if (doodleSyntax) marginaliaContent += `${doodleSyntax}`;
+
+        let finalMd = "\n";
+        if (marginaliaContent.trim()) finalMd += `%%> ${marginaliaContent.trim()} %%\n`;
+        if (context) finalMd += `${context}\n`;
+        if (contextImageSyntax) finalMd += `${contextImageSyntax}\n`;
+        finalMd += `\n---\n`;
+
+        // 4. INYECCIÓN
+        let file = this.app.metadataCache.getFirstLinkpathDest(finalDestName, "");
+        if (file instanceof TFile) {
+            await this.app.vault.append(file, finalMd);
+        } else {
+            let fileName = finalDestName.endsWith(".md") ? finalDestName : `${finalDestName}.md`;
+            let folderPath = this.plugin.settings.zkMode ? this.plugin.settings.zkFolder.trim() : this.plugin.settings.omniCaptureFolder.trim(); 
+            if (folderPath) {
+                await this.plugin.ensureFolderExists(folderPath); 
+                fileName = `${folderPath}/${fileName}`; 
+            }
+            const header = this.plugin.settings.zkMode ? `# 🗃️ ${finalDestName}\n` : `# 📥 ${finalDestName}\n`; 
+            await this.app.vault.create(fileName, header + finalMd); 
+        }
+        
+        new Notice(`⚡ Capture injected into ${finalDestName}`);
+        
+        if (this.plugin.settings.lastOmniDestination !== cleanDestName) {
+            this.plugin.settings.lastOmniDestination = cleanDestName;
+            await this.plugin.saveSettings();
+        }
+    }
+}
+// =================================================================
 // --- ESTRUCTURAS ---
 interface CornellTag {
     prefix: string; 
@@ -67,8 +213,13 @@ interface MarginaliaItem {
     isTitle?: boolean;
     isCustom?: boolean;
     indentLevel?: number;
+   
 }
 
+ // 🌉 EL PUENTE: Memoria estática para cruzar datos entre vistas (Drag & Drop)
+    export class OmniDragManager {
+    static payload: MarginaliaItem | null = null;
+    }
 const DEFAULT_SETTINGS: CornellSettings = {
     ignoredFolders: 'Templates',
     alignment: 'left', 
@@ -1612,26 +1763,23 @@ class CornellNotesView extends ItemView {
             setIcon(doodleBtn, 'palette');
             doodleBtn.createSpan({ text: 'Doodle' });
             
-            // 👇 AQUÍ ESTÁ EL CAMBIO: Ahora recibe la orden de guardar al instante (isInstant)
-            doodleBtn.onclick = () => { 
-                new SidebarDoodleModal(this.app, async (arrayBuffer, isInstant) => {
-                    this.pendingDoodleData = arrayBuffer;
-                    doodleBtn.style.color = "var(--color-green)"; // Confirmación visual
-                    
-                    if (isInstant) {
-                        await saveCapture(); // ⚡ DISPARA EL GUARDADO FINAL AUTOMÁTICAMENTE
-                    } else {
-                        new Notice("🎨 Doodle attached! Press ⚡ to save.");
-                    }
-                }).open();
+            // 🎨 BOTÓN DOODLE: Solo le pide al cerebro que abra el modal
+            doodleBtn.onclick = async () => { 
+                const result = await this.plugin.captureManager.openDoodle();
+                this.pendingDoodleData = result.data;
+                doodleBtn.style.color = "var(--color-green)"; 
+                
+                if (result.isInstant) {
+                    executeSave(); // Guardado automático
+                } else {
+                    new Notice("🎨 Doodle attached! Press ⚡ to save.");
+                }
             };
 
             const bottomRow = qcContainer.createDiv({ cls: 'cornell-qc-bottomrow' });
-            
             this.sliderIdeaInput = bottomRow.createEl('textarea', { placeholder: '💡 Your Idea (Auto-paste enabled)...' });
             this.sliderIdeaInput.classList.add('cornell-qc-textarea');
             
-            // 🛡️ LISTENER DE PEGADO MANUAL PARA IMÁGENES (Ctrl+V)
             this.sliderIdeaInput.addEventListener("paste", async (e: ClipboardEvent) => {
                 if (!e.clipboardData) return;
                 const items = e.clipboardData.items;
@@ -1651,189 +1799,48 @@ class CornellNotesView extends ItemView {
             submitBtn.classList.add('cornell-qc-submit');
             setIcon(submitBtn, 'zap');
 
-            
-            // 🧠 EL MOTOR DEFINITIVO
-            const saveCapture = async () => {
-                const thought = this.sliderIdeaInput.value.trim();
-                let rawDestInput = this.sliderDestInput.value.trim() || "Marginalia Inbox";
+            // 🧠 EL NUEVO PUENTE (Las manos hablan con el cerebro)
+            const executeSave = async () => {
+                const payload = {
+                    thought: this.sliderIdeaInput.value.trim(),
+                    destination: this.sliderDestInput.value.trim() || "Marginalia Inbox",
+                    doodleData: this.pendingDoodleData
+                };
 
-                // 🛡️ ESCUDO ANTI-CADENAS: Si el texto ya empieza con un ID viejo (12 a 14 números + guion), se lo quitamos.
-                let cleanDestName = rawDestInput.replace(/^\d{12,14}\s*-\s*/, '').trim();
-                if (!cleanDestName) cleanDestName = "Marginalia Inbox";
-
-                let finalDestName = cleanDestName;
-
-                // 🧠 MAGIA ZK: Genera un ID limpio de 14 dígitos (YYYYMMDDHHmmss)
-                if (this.plugin.settings.zkMode) {
-                    // @ts-ignore
-                    const zkId = window.moment().format('YYYYMMDDHHmmss');
-                    
-                    if (cleanDestName !== "Marginalia Inbox") {
-                        finalDestName = `${zkId} - ${cleanDestName}`;
-                    } else {
-                        finalDestName = zkId;
-                    }
-                }
-                
-                // 1. AUTO-LECTURA DEL PORTAPAPELES (Con protección try-catch)
-                let context = "";
                 try {
-                    const clipboardItems = await navigator.clipboard.read();
-                    for (const item of clipboardItems) {
-                        if (item.types.includes("text/plain")) {
-                            const blob = await item.getType("text/plain");
-                            const text = await blob.text();
-                            if (text && text !== CornellNotesView.lastCapturedContext) {
-                                context = text.trim();
-                                CornellNotesView.lastCapturedContext = context;
-                            }
-                        }
-                        const imageType = item.types.find(type => type.startsWith("image/"));
-                        if (imageType) {
-                            const blob = await item.getType(imageType);
-                            const buffer = await blob.arrayBuffer();
-                            if (buffer.byteLength !== CornellNotesView.lastCapturedImageLength) {
-                                this.pendingClipboardImageData = buffer;
-                                this.pendingClipboardImageExt = imageType.split('/')[1] || 'png';
-                                CornellNotesView.lastCapturedImageLength = buffer.byteLength;
-                            }
-                        }
-                    }
-                } catch (err) {
-                    try {
-                        const clipText = await navigator.clipboard.readText();
-                        if (clipText && clipText !== CornellNotesView.lastCapturedContext) {
-                            context = clipText.trim();
-                            CornellNotesView.lastCapturedContext = context;
-                        }
-                    } catch (e) { }
-                }
-
-                if (!thought && !context && !this.pendingDoodleData && !this.pendingClipboardImageData) {
-                    new Notice("⚠️ Capture is empty!");
-                    return;
-                }
-
-                // 2. PROCESAR IMÁGENES AL DISCO
-                let contextImageSyntax = "";
-                if (this.pendingClipboardImageData) {
-                    // @ts-ignore
-                    const dateStr = window.moment().format('YYYYMMDD_HHmmss');
-                    const fileName = `clip_${dateStr}.${this.pendingClipboardImageExt}`;
-                    let attachmentPath = fileName;
-                    try {
-                        // @ts-ignore
-                        attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
-                    } catch (e) { attachmentPath = fileName; }
-                    await this.app.vault.createBinary(attachmentPath, this.pendingClipboardImageData);
-                    const actualFileName = attachmentPath.split('/').pop();
-                    contextImageSyntax = `![[${actualFileName}]]`; 
-                }
-
-                let doodleSyntax = "";
-                if (this.pendingDoodleData) {
-                    // @ts-ignore
-                    const dateStr = window.moment().format('YYYYMMDD_HHmmss');
-                    const fileName = `doodle_${dateStr}.png`;
-                    const folder = this.plugin.settings.doodleFolder.trim();
-                    let attachmentPath = fileName;
+                    // 1. Mandamos procesar el disco al Cerebro
+                    await this.plugin.captureManager.saveCapture(payload, this.pendingClipboardImageData, this.pendingClipboardImageExt);
                     
-                    if (folder) {
-                        await this.plugin.ensureFolderExists(folder);
-                        attachmentPath = `${folder}/${fileName}`;
-                    } else {
-                        try {
-                            // @ts-ignore
-                            attachmentPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, "");
-                        } catch (e) { 
-                            attachmentPath = fileName; 
-                        }
-                    }
-                    
-                    await this.app.vault.createBinary(attachmentPath, this.pendingDoodleData);
-                    const actualFileName = attachmentPath.split('/').pop();
-                    doodleSyntax = `img:[[${actualFileName}]]`; 
-                }
-
-                // 3. ENSAMBLAJE DE MARKDOWN
-                let marginaliaContent = "";
-                if (thought) marginaliaContent += `${thought} `; 
-                if (doodleSyntax) marginaliaContent += `${doodleSyntax}`;
-
-                let finalMd = "\n";
-                if (marginaliaContent.trim()) {
-                    finalMd += `%%> ${marginaliaContent.trim()} %%\n`;
-                }
-                if (context) {
-                    finalMd += `${context}\n`;
-                }
-                if (contextImageSyntax) {
-                    finalMd += `${contextImageSyntax}\n`;
-                }
-                finalMd += `\n---\n`;
-
-                // 4. INYECCIÓN BÚSQUEDA GLOBAL
-                let file = this.app.metadataCache.getFirstLinkpathDest(finalDestName, "");
-                try {
-                    if (file instanceof TFile) {
-                        await this.app.vault.append(file, finalMd);
-                    } else {
-                        let fileName = finalDestName.endsWith(".md") ? finalDestName : `${finalDestName}.md`;
-                        let folderPath = ""; 
-
-                        // 📁 DETERMINAR LA CARPETA (Prioridad: ZK Mode > Omni Folder)
-                        if (this.plugin.settings.zkMode) {
-                            folderPath = this.plugin.settings.zkFolder.trim(); 
-                        } else {
-                            folderPath = this.plugin.settings.omniCaptureFolder.trim(); 
-                        }
-
-                        // Si hay una carpeta definida, aseguramos que exista y ajustamos la ruta
-                        if (folderPath) {
-                            await this.plugin.ensureFolderExists(folderPath); 
-                            fileName = `${folderPath}/${fileName}`; 
-                        }
-
-                        // Crear el archivo con el encabezado correspondiente
-                        const header = this.plugin.settings.zkMode ? `# 🗃️ ${finalDestName}\n` : `# 📥 ${finalDestName}\n`; 
-                        await this.app.vault.create(fileName, header + finalMd); 
-                    }
-                    
-                    
-                    // 5. LIMPIEZA INTELIGENTE
-                    new Notice(`⚡ Capture injected into ${finalDestName}`);
-                    // --- 🎮 MOTOR DE EXPERIENCIA (GAMIFICACIÓN) ---
+                    // 2. Si el cerebro tuvo éxito, LA VISTA se encarga de la UI y los Puntos XP
                     if (this.plugin.settings.addons && this.plugin.settings.addons["gamification-profile"]) {
                         this.plugin.gamificationAddon.addXp();
-                        this.renderUI(); // Refresca el perfil instantáneamente
+                        this.renderUI(); 
                     }
-                    // ----------------------------------------------
+
+                    // 3. Limpiamos la UI
                     this.sliderIdeaInput.value = '';
-                    this.sliderDestInput.value = cleanDestName; // 👈 Resetea visualmente el input para quitar la basura
+                    let cleanDestName = payload.destination.replace(/^\d{12,14}\s*-\s*/, '').trim() || "Marginalia Inbox";
+                    this.sliderDestInput.value = cleanDestName;
+                    
                     this.pendingDoodleData = null;
                     this.pendingClipboardImageData = null;
                     doodleBtn.style.color = "var(--text-muted)";
-
-                    // 🧠 Memoria: Guardamos el destino limpio siempre, curando la memoria corrupta.
-                    if (this.plugin.settings.lastOmniDestination !== cleanDestName) {
-                        this.plugin.settings.lastOmniDestination = cleanDestName;
-                        await this.plugin.saveSettings();
-                    }
-
                     this.applyFiltersAndRender();
-                } catch (error) {
-                    new Notice("❌ Error saving capture. Check console.");
-                    console.error(error);
+
+                } catch (e) {
+                    // El error visual ya fue notificado por el Cerebro
                 }
             };
 
-            submitBtn.onclick = saveCapture;
+            submitBtn.onclick = executeSave;
             this.sliderIdeaInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault();
-                    saveCapture();
+                    executeSave();
                 }
             });
+
+            
         }
     }
     
@@ -2029,14 +2036,41 @@ class CornellNotesView extends ItemView {
 
     renderPinboardTab(container: HTMLElement) {
         container.empty();
+        
 
         // 🧠 INTERCEPTOR ZEN: Si estamos en modo Zen, cortamos aquí y dibujamos el lienzo.
         if (this.isZenMode) {
             this.renderZenDoodle(container);
             return; 
         }
+        // 🪄 LA ALFOMBRA: Contenedor desechable que muere limpiamente en cada redibujado
+        const boardCanvas = container.createDiv();
+        boardCanvas.style.minHeight = '100%';
+        boardCanvas.style.display = 'flex';
+        boardCanvas.style.flexDirection = 'column';
+        
+        boardCanvas.addEventListener('dragenter', (e) => { if (OmniDragManager.payload) e.preventDefault(); });
+        boardCanvas.addEventListener('dragover', (e) => {
+            if (OmniDragManager.payload) {
+                e.preventDefault(); 
+                boardCanvas.style.boxShadow = 'inset 0 0 10px rgba(var(--interactive-accent-rgb), 0.3)';
+            }
+        });
+        boardCanvas.addEventListener('dragleave', () => { boardCanvas.style.boxShadow = 'none'; });
+        boardCanvas.addEventListener('drop', (e) => {
+            boardCanvas.style.boxShadow = 'none';
+            if (OmniDragManager.payload) {
+                e.preventDefault(); e.stopPropagation();
+                // Aquí aplicamos también la traducción de imágenes que hicimos antes
+                const translatedText = OmniDragManager.payload.text.replace(/img:\s*\[\[(.*?)\]\]/gi, '![[$1]]').trim();
+                const newItem = { ...OmniDragManager.payload, text: translatedText, indentLevel: 0 };
+                this.pinboardItems.push(newItem);
+                this.pinboardFocusIndex = this.pinboardItems.length - 1;
+                this.applyFiltersAndRender();
+            }
+        });
 
-        const topControls = container.createDiv({ cls: 'cornell-pinboard-controls' });
+        const topControls = boardCanvas.createDiv({ cls: 'cornell-pinboard-controls' });
         topControls.style.display = 'flex';
         topControls.style.flexDirection = 'column';
         topControls.style.gap = '10px';
@@ -2147,12 +2181,12 @@ class CornellNotesView extends ItemView {
         };
 
         if (this.pinboardItems.length === 0) {
-            container.createEl('p', { text: 'Your Board is empty. Paste a skeleton, add nodes, or pin notes!', cls: 'cornell-sidebar-empty' });
+            boardCanvas.createEl('p', { text: 'Your Board is empty. Paste a skeleton, add nodes, or pin notes!', cls: 'cornell-sidebar-empty' });
             return;
         }
 
         let draggedIndex: number | null = null;
-        const listContainer = container.createDiv();
+        const listContainer = boardCanvas.createDiv();
 
         this.pinboardItems.forEach((item, index) => {
             let currentIndex = index; 
@@ -2371,10 +2405,19 @@ class CornellNotesView extends ItemView {
 
             // Drag & Drop
             itemWrapper.addEventListener('dragstart', (e) => { draggedIndex = currentIndex; itemWrapper.style.opacity = '0.4'; e.stopPropagation(); });
-            itemWrapper.addEventListener('dragover', (e) => { e.preventDefault(); itemWrapper.style.borderTop = '3px solid var(--interactive-accent)'; });
+            itemWrapper.addEventListener('dragover', (e) => { e.preventDefault(); itemWrapper.style.borderTop = '3px solid var(--interactive-accent)';
+                console.log("✈️ 2. DRAG OVER: Volando sobre una nota. ¿Hay payload?", OmniDragManager.payload !== null);
+            });
             itemWrapper.addEventListener('dragleave', () => { itemWrapper.style.borderTop = ''; });
             itemWrapper.addEventListener('drop', (e) => {
                 e.preventDefault(); e.stopPropagation(); itemWrapper.style.borderTop = '';
+                // 👽 CASO EXTERNO: Viene de la Máquina del Tiempo
+            if (OmniDragManager.payload) {
+                const newItem = { ...OmniDragManager.payload, indentLevel: 0 };
+                this.pinboardItems.splice(currentIndex, 0, newItem);
+                this.applyFiltersAndRender();
+                return; // Cortamos aquí para que no ejecute el código de abajo
+            }
                 if (draggedIndex !== null && draggedIndex !== currentIndex) {
                     const itemToMove = this.pinboardItems[draggedIndex];
                     this.pinboardItems.splice(draggedIndex, 1);
@@ -2397,6 +2440,7 @@ class CornellNotesView extends ItemView {
         
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
+            console.log("✈️ 2.5 DRAG OVER: Volando sobre la zona vacía. ¿Hay payload?", OmniDragManager.payload !== null);
             // Borde punteado al pasar por encima
             dropZone.style.border = '2px dashed var(--interactive-accent)'; 
         });
@@ -2409,6 +2453,15 @@ class CornellNotesView extends ItemView {
             e.preventDefault();
             e.stopPropagation();
             dropZone.style.border = 'none';
+            // 👽 CASO EXTERNO: Viene de la Máquina del Tiempo
+            if (OmniDragManager.payload) {
+                console.log("🛬 3. DROP: ¡Aterrizaje autorizado en el Pinboard!");
+                const newItem = { ...OmniDragManager.payload, indentLevel: 0 };
+                this.pinboardItems.push(newItem); // Va al final de la lista
+                this.pinboardFocusIndex = this.pinboardItems.length - 1;
+                this.applyFiltersAndRender();
+                return; // Cortamos aquí
+            }
             
             // Mueve la nota al final
             if (draggedIndex !== null && draggedIndex !== this.pinboardItems.length - 1) {
@@ -4146,6 +4199,37 @@ export class RhizomeView extends ItemView {
             for (const item of timelineData[date]) {
                 const node = nodesContainer.createDiv({ cls: 'cornell-rhizome-node' });
                 node.id = item.id; 
+                // --- 👽 INICIO MAGIA DRAG & DROP (HACIA EL BOARD) ---
+                node.setAttr('draggable', 'true');
+                
+                node.addEventListener('dragstart', (e: DragEvent) => {
+                    console.log("🛸 1. DRAG START: Nota capturada en el Rhizome", item.text);
+                    // Empaquetamos los datos del Rhizome al formato que el Pinboard entiende
+                    OmniDragManager.payload = {
+                        text: item.text.replace(/img:\s*\[\[(.*?)\]\]/gi, '![[$1]]').trim(),
+                        rawText: item.text,
+                        color: item.color,
+                        file: item.file,
+                        line: item.line,
+                        blockId: item.blockId,
+                        outgoingLinks: item.outgoingLinks,
+                        indentLevel: 0
+                    };
+                    
+                    node.style.opacity = '0.5'; // Feedback visual
+                    
+                    if (e.dataTransfer) {
+                        e.dataTransfer.effectAllowed = 'copy';
+                        e.dataTransfer.setData('text/plain', item.text);
+                    }
+                });
+
+                node.addEventListener('dragend', (e: DragEvent) => {
+                    console.log("💥 4. DRAG END: Vuelo terminado. Destruyendo payload.");
+                    node.style.opacity = '1';
+                    OmniDragManager.payload = null; // Limpiamos la memoria al soltar
+                });
+                // --- FIN MAGIA DRAG & DROP ---
                 
                 if (item.isFlashcard) {
                     const fcIcon = node.createSpan({ text: '⚡ ', title: 'Flashcard' });
@@ -4703,6 +4787,7 @@ export class RhizomeView extends ItemView {
 // --- PLUGIN PRINCIPAL ---
 export default class CornellMarginalia extends Plugin {
     settings!: CornellSettings;
+    public captureManager!: OmniCaptureManager;
     activeRecallMode: boolean = false; 
     ribbonIcon!: HTMLElement;
     // 👇 RESERVAMOS ESPACIO PARA EL ADDON DE GAMIFICACIÓN
@@ -4729,6 +4814,7 @@ export default class CornellMarginalia extends Plugin {
 
     async onload() {
         await this.loadSettings();
+        this.captureManager = new OmniCaptureManager(this.app, this);
 
         // 👇 INICIALIZAMOS Y CONECTAMOS LOS ADDONS
         this.gamificationAddon = new GamificationAddon(this);
@@ -4790,6 +4876,39 @@ export default class CornellMarginalia extends Plugin {
             name: '⚡ Omni-Capture (Idea, Context & Doodle)',
             callback: () => {
                 new OmniCaptureModal(this.app, this).open();
+            }
+        });
+
+        this.addCommand({
+            id: 'cornell-open-sidebar-doodle',
+            name: 'Open Sidebar Doodle Canvas',
+            hotkeys: [{ modifiers: ['Alt', 'Shift'], key: 'd' }],
+            callback: async () => {
+                const result = await this.captureManager.openDoodle();
+                
+                if (result.isInstant) {
+                    await this.captureManager.saveCapture({
+                        thought: "",
+                        destination: this.settings.lastOmniDestination,
+                        doodleData: result.data
+                    });
+                    // Refresca la vista si está abierta
+                    this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE).forEach(leaf => {
+                        if (leaf.view instanceof CornellNotesView) leaf.view.applyFiltersAndRender();
+                    });
+                } else {
+                    // Si no es instantáneo, inyectamos el doodle en la barra lateral para que siga escribiendo
+                    const leaves = this.app.workspace.getLeavesOfType(CORNELL_VIEW_TYPE);
+                    if (leaves.length > 0) {
+                        const view = leaves[0].view as CornellNotesView;
+                        view.pendingDoodleData = result.data;
+                        const doodleBtn = view.containerEl.querySelector('.cornell-qc-btn[title="Attach Doodle"]') as HTMLElement;
+                        if (doodleBtn) doodleBtn.style.color = "var(--color-green)";
+                        new Notice("🎨 Doodle in memory! Press ⚡ in the sidebar to save.");
+                    } else {
+                        new Notice("🎨 Doodle captured. Open Sidebar to complete your note.");
+                    }
+                }
             }
         });
 
