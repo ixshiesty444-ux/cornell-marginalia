@@ -6,6 +6,7 @@ import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetTy
 import { GamificationAddon } from "./addons/GamificationAddon";
 import { CustomBackgroundAddon } from "./addons/CustomBackgroundAddon";
 import { RhizomeAddon, RHIZOME_VIEW_TYPE } from "./addons/RhizomeAddon";
+import { PdfDoodleAddon } from "./addons/PdfDoodleAddon";
 
 
 // =================================================================
@@ -199,6 +200,7 @@ interface CornellSettings {
     omniCaptureFolder: string;
     addons: Record<string, boolean>; 
     userStats: UserStats;
+    enablePdfDoodle: boolean;
 }
 
 
@@ -258,7 +260,8 @@ const DEFAULT_SETTINGS: CornellSettings = {
         profileImage: "", quote: "Stay curious.",
         customBackground: "", bgBlur: 5, bgOpacity: 0.8,
         rhizomeReviews: {}
-    }
+    },
+    enablePdfDoodle: false,
 }
 
 
@@ -3886,6 +3889,17 @@ class CornellSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     })
                 );
+            
+            new Setting(containerEl)
+            .setName('Pdf Doodle & Harvest')
+            .setDesc('Habilita el modo de dibujo temporal sobre PDFs.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.enablePdfDoodle)
+                .onChange(async (value) => {
+                    this.plugin.settings.enablePdfDoodle = value;
+                    await this.plugin.saveSettings();
+                    new Notice("Reinicia Obsidian para aplicar cambios en los Addons.");
+            }));
     
     }
 
@@ -4839,6 +4853,10 @@ export default class CornellMarginalia extends Plugin {
             this.rhizomeAddon.load();
         }
 
+        // Dentro de onload() { ... }
+        if (this.settings.enablePdfDoodle) {
+        new PdfDoodleAddon(this).load();
+        }
         // 👆 FIN DE LA CONEXIÓN DE ADDONS
 
         this.updateStyles(); 

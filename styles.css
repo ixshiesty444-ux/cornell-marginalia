@@ -1566,3 +1566,63 @@ body.theme-dark .cornell-pinboard-item img[src*="doodle_"] {
     box-shadow: none !important;
     background: transparent !important;
 }
+
+/* ======================================================
+   ⚡ CORNELL PDF DOODLE ADDON - FIX CAPAS
+   ====================================================== */
+
+/* Estado por defecto: Dibujando */
+.cornell-pdf-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999 !important; 
+    
+    /* IMPORTANTE: Quitamos el !important de aquí para que JS pueda actuar */
+    pointer-events: auto; 
+    background-color: rgba(255, 204, 0, 0.05); 
+    cursor: crosshair; 
+}
+
+/* Modo Reposo (cuando hacemos doble clic) */
+.cornell-pdf-overlay.is-resting {
+    /* Dejamos pasar los clics para poder seleccionar el texto de Obsidian */
+    pointer-events: none !important; 
+    background-color: transparent !important;
+}
+
+.cornell-pdf-overlay canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* El botón del rayo debe estar todavía más arriba y ser SIEMPRE cliqueable */
+.cornell-harvest-btn {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    z-index: 10000 !important;
+    
+    /* Aunque el padre sea intocable, el botón SÍ recibe clics */
+    pointer-events: auto !important; 
+    
+    background-color: var(--interactive-accent);
+    color: white;
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    cursor: pointer;
+    transition: transform 0.1s ease;
+}
+
+.cornell-harvest-btn:hover {
+    transform: scale(1.1);
+}
